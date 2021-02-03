@@ -46,6 +46,14 @@ func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 	return p, ok
 }
 
+func (evm *EVM) statePrecompile(addr common.Address) (PrecompiledStateContract, bool) {
+	if evm.Config.StatePrecompiles == nil {
+		return nil, false
+	}
+	p, ok := evm.Config.StatePrecompiles[addr]
+	return p, ok
+}
+
 // BlockContext provides the EVM with auxiliary information. Once provided
 // it shouldn't be modified.
 type BlockContext struct {
@@ -256,6 +264,7 @@ func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, g
 	}
 	snapshot := evm.StateDB.Snapshot()
 	p, isPrecompile := evm.precompile(addr)
+	sp, isStatePrecompile := evm.statePrecompile(addr)
 
 	if !evm.StateDB.Exist(addr) {
 		if !isPrecompile && evm.chainRules.IsEIP4762 && !isSystemCall(caller) {
@@ -274,7 +283,7 @@ func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, g
 			gas -= wgas
 		}
 
-		if !isPrecompile && evm.chainRules.IsEIP158 && value.IsZero() {
+		if !isPrecompile && !isStatePrecompile && evm.chainRules.IsEIP158 && value.IsZero() {
 			// Calling a non-existing account, don't do anything.
 			return nil, gas, nil
 		}
@@ -284,6 +293,8 @@ func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, g
 
 	if isPrecompile {
 		ret, gas, err = RunPrecompiledContract(p, input, gas, evm.Config.Tracer)
+	} else if isStatePrecompile {
+		ret, gas, err = sp.Run(evm.StateDB, evm.Context, evm.TxContext, caller, input, gas)
 	} else {
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		code := evm.resolveCode(addr)

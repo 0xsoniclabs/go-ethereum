@@ -56,6 +56,10 @@ type PrecompiledContract interface {
 // PrecompiledContracts contains the precompiled contracts supported at the given fork.
 type PrecompiledContracts map[common.Address]PrecompiledContract
 
+type PrecompiledStateContract interface {
+	Run(stateDB StateDB, blockCtx BlockContext, txCtx TxContext, caller common.Address, input []byte, suppliedGas uint64) ([]byte, uint64, error) // Run runs the precompiled contract
+}
+
 // PrecompiledContractsHomestead contains the default set of pre-compiled Ethereum
 // contracts used in the Frontier and Homestead releases.
 var PrecompiledContractsHomestead = PrecompiledContracts{

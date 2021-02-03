@@ -34,6 +34,8 @@ type Config struct {
 
 	StatelessSelfValidation bool // Generate execution witnesses and self-check against them (testing purpose)
 	EnableWitnessStats      bool // Whether trie access statistics collection is enabled
+
+	StatePrecompiles map[common.Address]PrecompiledStateContract // Added by Fantom for custom precompiled contract
 }
 
 // ScopeContext contains the things that are per-call, such as stack and memory,
