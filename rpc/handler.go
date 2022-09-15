@@ -34,6 +34,15 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+var (
+	executionTimeLimit = 5 * time.Second
+)
+
+// SetExecutionTimeLimit sets execution limit for RPC method calls
+func SetExecutionTimeLimit(limit time.Duration) {
+	executionTimeLimit = limit
+}
+
 // handler handles JSON-RPC messages. There is one handler per connection. Note that
 // handler is not safe for concurrent use. Message handling never blocks indefinitely
 // because RPCs are processed on background goroutines launched by handler.
@@ -544,6 +553,9 @@ func (h *handler) handleCall(cp *callProc, msg *jsonrpcMessage) *jsonrpcMessage 
 		return msg.errorResponse(&invalidParamsError{pErr.Error()})
 	}
 	start := time.Now()
+
+	ctx, cancel := context.WithTimeout(cp.ctx, executionTimeLimit)
+	defer cancel()
 
 	// Start tracing span before running the method.
 	rctx, _, rSpanEnd := telemetry.StartSpanWithTracer(ctx, h.tracer(), "rpc.runMethod")
