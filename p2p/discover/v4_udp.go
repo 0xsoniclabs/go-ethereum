@@ -24,6 +24,7 @@ import (
 	crand "crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/p2p/discover/discfilter"
 	"io"
 	"net/netip"
 	"sync"
@@ -761,6 +762,10 @@ func (t *UDPv4) handleFindnode(h *packetHandlerV4, from netip.AddrPort, fromID e
 	p := v4wire.Neighbors{Expiration: uint64(time.Now().Add(expiration).Unix())}
 	var sent bool
 	for _, n := range closest {
+		// Don't advertise the bots
+		if discfilter.Banned(n.ID(), n.Record()) {
+			continue
+		}
 		if netutil.CheckRelayAddr(from.Addr(), n.IPAddr()) == nil {
 			p.Nodes = append(p.Nodes, nodeToRPC(n))
 		}
