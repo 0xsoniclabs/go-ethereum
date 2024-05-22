@@ -117,7 +117,7 @@ type EVM struct {
 
 	// global (to this context) ethereum virtual machine used throughout
 	// the execution of the tx
-	interpreter *EVMInterpreter
+	interpreter Interpreter
 
 	// abort is used to abort the EVM calling operations
 	abort atomic.Bool
@@ -133,6 +133,9 @@ type EVM struct {
 	// jumpDests is the aggregated result of JUMPDEST analysis made through
 	// the life cycle of EVM.
 	jumpDests map[common.Hash]bitvec
+
+	// An optional override to intercept EVM calls.
+	CallInterceptor CallContextInterceptor
 }
 
 // NewEVM constructs an EVM instance with the supplied block context, state
@@ -149,7 +152,7 @@ func NewEVM(blockCtx BlockContext, statedb StateDB, chainConfig *params.ChainCon
 		jumpDests:   make(map[common.Hash]bitvec),
 	}
 	evm.precompiles = activePrecompiledContracts(evm.chainRules)
-	evm.interpreter = NewEVMInterpreter(evm)
+	evm.interpreter = getInterpreter(evm)
 	return evm
 }
 
@@ -181,7 +184,7 @@ func (evm *EVM) Cancelled() bool {
 }
 
 // Interpreter returns the current interpreter
-func (evm *EVM) Interpreter() *EVMInterpreter {
+func (evm *EVM) Interpreter() Interpreter {
 	return evm.interpreter
 }
 
@@ -194,6 +197,9 @@ func isSystemCall(caller common.Address) bool {
 // the necessary steps to create accounts and reverses the state in case of an
 // execution error or failed value transfer.
 func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, gas uint64, value *uint256.Int) (ret []byte, leftOverGas uint64, err error) {
+	if evm.CallInterceptor != nil {
+		return evm.CallInterceptor.Call(evm, caller, addr, input, gas, value)
+	}
 	// Capture the tracer start/end events in debug mode
 	if evm.Config.Tracer != nil {
 		evm.captureBegin(evm.depth, CALL, caller, addr, input, gas, value.ToBig())
@@ -235,7 +241,7 @@ func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, g
 	if isPrecompile {
 		ret, gas, err = RunPrecompiledContract(p, input, gas, evm.Config.Tracer)
 	} else if isStatePrecompile {
-		ret, gas, err = sp.Run(evm.StateDB, evm.Context, evm.TxContext, caller.Address(), input, gas)
+		ret, gas, err = sp.Run(evm.StateDB, evm.Context, evm.TxContext, caller, input, gas)
 	} else {
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		code := evm.resolveCode(addr)
@@ -277,6 +283,9 @@ func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, g
 // CallCode differs from Call in the sense that it executes the given address'
 // code with the caller as context.
 func (evm *EVM) CallCode(caller common.Address, addr common.Address, input []byte, gas uint64, value *uint256.Int) (ret []byte, leftOverGas uint64, err error) {
+	if evm.CallInterceptor != nil {
+		return evm.CallInterceptor.CallCode(evm, caller, addr, input, gas, value)
+	}
 	// Invoke tracer hooks that signal entering/exiting a call frame
 	if evm.Config.Tracer != nil {
 		evm.captureBegin(evm.depth, CALLCODE, caller, addr, input, gas, value.ToBig())
@@ -326,6 +335,9 @@ func (evm *EVM) CallCode(caller common.Address, addr common.Address, input []byt
 // DelegateCall differs from CallCode in the sense that it executes the given address'
 // code with the caller as context and the caller is set to the caller of the caller.
 func (evm *EVM) DelegateCall(originCaller common.Address, caller common.Address, addr common.Address, input []byte, gas uint64, value *uint256.Int) (ret []byte, leftOverGas uint64, err error) {
+	if evm.CallInterceptor != nil {
+		return evm.CallInterceptor.DelegateCall(evm, caller, addr, input, gas)
+	}
 	// Invoke tracer hooks that signal entering/exiting a call frame
 	if evm.Config.Tracer != nil {
 		// DELEGATECALL inherits value from parent call
@@ -369,6 +381,9 @@ func (evm *EVM) DelegateCall(originCaller common.Address, caller common.Address,
 // Opcodes that attempt to perform such modifications will result in exceptions
 // instead of performing the modifications.
 func (evm *EVM) StaticCall(caller common.Address, addr common.Address, input []byte, gas uint64) (ret []byte, leftOverGas uint64, err error) {
+	if evm.CallInterceptor != nil {
+		return evm.CallInterceptor.StaticCall(evm, caller, addr, input, gas)
+	}
 	// Invoke tracer hooks that signal entering/exiting a call frame
 	if evm.Config.Tracer != nil {
 		evm.captureBegin(evm.depth, STATICCALL, caller, addr, input, gas, nil)
@@ -557,6 +572,9 @@ func (evm *EVM) initNewContract(contract *Contract, address common.Address) ([]b
 
 // Create creates a new contract using code as deployment code.
 func (evm *EVM) Create(caller common.Address, code []byte, gas uint64, value *uint256.Int) (ret []byte, contractAddr common.Address, leftOverGas uint64, err error) {
+	if evm.CallInterceptor != nil {
+		return evm.CallInterceptor.Create(evm, caller, code, gas, value)
+	}
 	contractAddr = crypto.CreateAddress(caller, evm.StateDB.GetNonce(caller))
 	return evm.create(caller, code, gas, value, contractAddr, CREATE)
 }
@@ -566,6 +584,9 @@ func (evm *EVM) Create(caller common.Address, code []byte, gas uint64, value *ui
 // The different between Create2 with Create is Create2 uses keccak256(0xff ++ msg.sender ++ salt ++ keccak256(init_code))[12:]
 // instead of the usual sender-and-nonce-hash as the address where the contract is initialized at.
 func (evm *EVM) Create2(caller common.Address, code []byte, gas uint64, endowment *uint256.Int, salt *uint256.Int) (ret []byte, contractAddr common.Address, leftOverGas uint64, err error) {
+	if evm.CallInterceptor != nil {
+		return evm.CallInterceptor.Create2(evm, caller, code, gas, endowment, salt)
+	}
 	contractAddr = crypto.CreateAddress2(caller, salt.Bytes32(), crypto.Keccak256(code))
 	return evm.create(caller, code, gas, endowment, contractAddr, CREATE2)
 }
