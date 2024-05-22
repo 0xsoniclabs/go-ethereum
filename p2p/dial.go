@@ -560,7 +560,11 @@ func (t *dialTask) run(d *dialScheduler) {
 		var dialErr *dialError
 		if errors.As(err, &dialErr) && t.isStatic() {
 			if t.resolve(d) {
-				t.dial(d, t.dest())
+				err = t.dial(d, t.dest())
+			}
+			if err != nil {
+				addr, _ := t.dest().TCPEndpoint()
+				d.log.Warn("Failed to dial static peer", "id", t.dest().ID(), "addr", addr, "conn", t.flags, "err", cleanupDialErr(err))
 			}
 		}
 	}
