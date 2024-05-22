@@ -18,6 +18,7 @@ package vm
 
 import (
 	"fmt"
+	gomath "math"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
@@ -36,6 +37,18 @@ type Config struct {
 	EnableWitnessStats      bool // Whether trie access statistics collection is enabled
 
 	StatePrecompiles map[common.Address]PrecompiledStateContract // Added by Fantom for custom precompiled contract
+
+	Interpreter           InterpreterFactory // The interpreter implementation to use for non-tracing executions. If nil, EVMInterpreter will be used.
+	InterpreterForTracing InterpreterFactory // The interpreter implementation to use for tracing executions. If nil, Interpreter will be used.
+
+	// -- Fantom / Sonic specific configuration options --
+	// By setting the following flags to their default values, the EVM will behave as the vanilla Ethereum EVM.
+	// To get the Fantom-main-net behavior, all of the following flags need to be enabled. Future networks may
+	// have different configurations.
+	ChargeExcessGas                 bool // if enabled, 10% of excessive gas is charged for the execution
+	IgnoreGasFeeCap                 bool // if enabled, gas fee cap is ignored
+	InsufficientBalanceIsNotAnError bool // if enabled, insufficient balance is treated as a revert, not an execution error on the top level
+	SkipTipPaymentToCoinbase        bool // if enabled, tip payment is not made to the coinbase address
 }
 
 // ScopeContext contains the things that are per-call, such as stack and memory,
@@ -97,6 +110,36 @@ func (ctx *ScopeContext) ContractCode() []byte {
 // considered a revert-and-consume-all-gas operation except for
 // ErrExecutionReverted which means revert-and-keep-gas-left.
 func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
+	// Re-direct to the configured interpreter implementation. This is a hook-in
+	// point for alternative interpreters such as the Tosca interpreter.
+	return getInterpreter(evm).Interpret(contract, input, readOnly)
+}
+
+type evmInterpreter struct {
+	evm *EVM
+}
+
+func (i evmInterpreter) Interpret(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
+	state := InterpreterState{
+		Contract: contract,
+		Stack:    newstack(),
+		Memory:   NewMemory(),
+		Input:    input,
+		ReadOnly: readOnly,
+	}
+	defer func() {
+		returnStack(state.Stack)
+		state.Memory.Free()
+	}()
+	return i.runSteps(&state, gomath.MaxUint64)
+}
+
+func (i evmInterpreter) runSteps(state *InterpreterState, maxSteps uint64) (ret []byte, err error) {
+	evm := i.evm
+	contract := state.Contract
+	input := state.Input
+	readOnly := state.ReadOnly
+
 	// Increment the call depth which is restricted to 1024
 	evm.depth++
 	defer func() { evm.depth-- }()
@@ -108,20 +151,22 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		defer func() { evm.readOnly = false }()
 	}
 
-	// Reset the previous call's return data. It's unimportant to preserve the old buffer
-	// as every returning call will return new data anyway.
-	evm.returnData = nil
+	// Use the InterperterState`s last call return data. If this function is called in
+	// a regular run context, this will reset the return data to nil.
+	evm.returnData = state.LastCallReturnData
 
 	// Don't bother with the execution if there's no code.
 	if len(contract.Code) == 0 {
+		// no code is treated as STOP
+		state.Error = errStopToken
 		return nil, nil
 	}
 
 	var (
 		op          OpCode     // current opcode
 		jumpTable   *JumpTable = evm.table
-		mem                    = NewMemory() // bound memory
-		stack                  = newstack()  // local stack
+		mem                    = state.Memory
+		stack                  = state.Stack
 		callContext            = &ScopeContext{
 			Memory:   mem,
 			Stack:    stack,
@@ -130,7 +175,7 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		// For optimisation reason we're using uint64 as the program counter.
 		// It's theoretically possible to go above 2^64. The YP defines the PC
 		// to be uint256. Practically much less so feasible.
-		pc   = uint64(0) // program counter
+		pc   = state.Pc // program counter
 		cost uint64
 		// copies used by tracer
 		pcCopy    uint64 // needed for the deferred EVMLogger
@@ -140,13 +185,7 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		debug     = evm.Config.Tracer != nil
 		isEIP4762 = evm.chainRules.IsEIP4762
 	)
-	// Don't move this deferred function, it's placed before the OnOpcode-deferred method,
-	// so that it gets executed _after_: the OnOpcode needs the stacks before
-	// they are returned to the pools
-	defer func() {
-		returnStack(stack)
-		mem.Free()
-	}()
+
 	contract.Input = input
 
 	if debug {
@@ -165,9 +204,9 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 	// The Interpreter main run loop (contextual). This loop runs until either an
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
 	// the execution of one of the operations or until the done flag is set by the
-	// parent context.
+	// parent context. It also may stop after a given step limit for testing.
 	_ = jumpTable[0] // nil-check the jumpTable out of the loop
-	for {
+	for steps := uint64(0); steps < maxSteps; steps++ {
 		if debug {
 			// Capture pre-execution values for tracing.
 			logged, pcCopy, gasCopy = false, pc, contract.Gas
@@ -257,6 +296,10 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		}
 		pc++
 	}
+
+	// Copy information back into passed Interpreter state.
+	state.Pc = pc
+	state.Error = err
 
 	if err == errStopToken {
 		err = nil // clear stop token error
