@@ -201,6 +201,8 @@ func (in *EVMInterpreter) run(state *InterpreterState, maxSteps uint64) (ret []b
 
 	// Don't bother with the execution if there's no code.
 	if len(contract.Code) == 0 {
+		// no code is treated as STOP
+		state.Error = errStopToken
 		return nil, nil
 	}
 
