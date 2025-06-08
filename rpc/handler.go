@@ -26,18 +26,29 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/log"
 )
 
 var (
-	executionTimeLimit = 5 * time.Second
+	executionTimeLimit = atomic.Pointer[time.Duration]{}
 )
 
 // SetExecutionTimeLimit sets execution limit for RPC method calls
 func SetExecutionTimeLimit(limit time.Duration) {
-	executionTimeLimit = limit
+	executionTimeLimit.Store(&limit)
+}
+
+// getExecutionTimeLimit returns the execution time limit for RPC method calls
+// as set by SetExecutionTimeLimit. If no limit is set, it returns the default
+// value of 5 seconds.
+func getExecutionTimeLimit() time.Duration {
+	if limit := executionTimeLimit.Load(); limit != nil {
+		return *limit
+	}
+	return 5 * time.Second // default value
 }
 
 // handler handles JSON-RPC messages. There is one handler per connection. Note that
@@ -526,7 +537,7 @@ func (h *handler) handleCall(cp *callProc, msg *jsonrpcMessage) *jsonrpcMessage 
 	}
 	start := time.Now()
 
-	ctx, cancel := context.WithTimeout(cp.ctx, executionTimeLimit)
+	ctx, cancel := context.WithTimeout(cp.ctx, getExecutionTimeLimit())
 	defer cancel()
 
 	answer := h.runMethod(ctx, msg, callb, args)
