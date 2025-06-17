@@ -522,13 +522,8 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	// gas allowance required to complete execution.
 	peakGasUsed := st.gasUsed()
 
-	if st.evm.Config.ChargeExcessGas {
-		// Fantom modification: for all transactions that are not internal transactions,
-		// charge 10% of remaining gas. This should avoid gas-overspending in transactions,
-		// filling up blocks.
-		if msg.From != (common.Address{}) {
-			st.gasRemaining = st.gasRemaining - st.gasRemaining/10
-		}
+	if !rules.IsPrague {
+		st.chargeExcessGas(msg.From)
 	}
 
 	// Compute refund counter, capped to a refund quotient.
@@ -545,6 +540,8 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 		if peakGasUsed < floorDataGas {
 			peakGasUsed = floorDataGas
 		}
+
+		st.chargeExcessGas(msg.From)
 	}
 	st.returnGas()
 
@@ -578,6 +575,17 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 		Err:        vmerr,
 		ReturnData: ret,
 	}, nil
+}
+
+// chargeExcessGas is a Fantom modification: for all transactions that are not internal
+// transactions, charge 10% of remaining gas. This should avoid gas-overspending in
+// transactions, filling up blocks.
+func (st *stateTransition) chargeExcessGas(from common.Address) {
+	if st.evm.Config.ChargeExcessGas {
+		if from != (common.Address{}) {
+			st.gasRemaining = st.gasRemaining - st.gasRemaining/10
+		}
+	}
 }
 
 // validateAuthorization validates an EIP-7702 authorization against the state.
