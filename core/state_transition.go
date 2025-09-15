@@ -406,8 +406,10 @@ func (st *stateTransition) preCheck() error {
 		}
 	}
 	// Verify tx gas limit does not exceed EIP-7825 cap.
-	if isOsaka && msg.GasLimit > st.evm.Config.MaxTxGas {
-		return fmt.Errorf("%w (cap: %d, tx: %d)", ErrGasLimitTooHigh, params.MaxTxGas, msg.GasLimit)
+	if msg.From != (common.Address{}) {
+		if isOsaka && msg.GasLimit > st.evm.Config.MaxTxGas {
+			return fmt.Errorf("%w (cap: %d, tx: %d)", ErrGasLimitTooHigh, params.MaxTxGas, msg.GasLimit)
+		}
 	}
 	return st.buyGas()
 }
