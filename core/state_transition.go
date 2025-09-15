@@ -406,7 +406,7 @@ func (st *stateTransition) preCheck() error {
 		}
 	}
 	// Verify tx gas limit does not exceed EIP-7825 cap.
-	if isOsaka && msg.GasLimit > params.MaxTxGas {
+	if isOsaka && msg.GasLimit > st.evm.Config.MaxTxGas {
 		return fmt.Errorf("%w (cap: %d, tx: %d)", ErrGasLimitTooHigh, params.MaxTxGas, msg.GasLimit)
 	}
 	return st.buyGas()
@@ -432,6 +432,11 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	// 4. the purchased gas is enough to cover intrinsic usage
 	// 5. there is no overflow when calculating intrinsic gas
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
+
+	// if no max gas has been set, then use constant from EIP-7825
+	if st.evm.Config.MaxTxGas == 0 {
+		st.evm.Config.MaxTxGas = params.MaxTxGas
+	}
 
 	// Check clauses 1-3, buy gas if everything is correct
 	if err := st.preCheck(); err != nil {
