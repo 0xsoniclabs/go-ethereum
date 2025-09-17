@@ -440,7 +440,8 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
 
 	// if no max gas has been set, then use constant from EIP-7825
-	if st.evm.Config.MaxTxGas == 0 {
+	if st.evm.ChainConfig().IsOsaka(st.evm.Context.BlockNumber, st.evm.Context.Time) &&
+		st.evm.Config.MaxTxGas == 0 {
 		st.evm.Config.MaxTxGas = params.MaxTxGas
 	}
 
