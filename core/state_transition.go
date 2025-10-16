@@ -439,12 +439,6 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	// 5. there is no overflow when calculating intrinsic gas
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
 
-	// if no max gas has been set, then use constant from EIP-7825
-	if st.evm.ChainConfig().IsOsaka(st.evm.Context.BlockNumber, st.evm.Context.Time) &&
-		st.evm.Config.MaxTxGas == 0 {
-		st.evm.Config.MaxTxGas = params.MaxTxGas
-	}
-
 	// Check clauses 1-3, buy gas if everything is correct
 	if err := st.preCheck(); err != nil {
 		return nil, err
