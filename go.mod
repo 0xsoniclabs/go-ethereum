@@ -1,4 +1,4 @@
-module github.com/ethereum/go-ethereum
+module github.com/arnac-io/sonic-go-ethereum
 
 go 1.21
 
