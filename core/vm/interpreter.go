@@ -53,6 +53,9 @@ type Config struct {
 	// MaxTxGas is the maximum gas allowed per transaction.
 	// If nil, this is interpreted as "not set" and the default params value is used.
 	MaxTxGas *uint64
+
+	MaxCodeSize     *int // Maximum code size allowed for a contract. If nil, the default params value is used.
+	MaxInitCodeSize *int // Maximum init code size allowed for a contract. If nil, the default params value is used.
 }
 
 // ScopeContext contains the things that are per-call, such as stack and memory,
