@@ -371,15 +371,21 @@ func (st *stateTransition) buyGas() error {
 		return fmt.Errorf("%w: address %v required balance exceeds 256 bits", ErrInsufficientFunds, st.msg.From.Hex())
 	}
 	balanceCheck := new(uint256.Int).Set(mgval)
-	if st.msg.GasFeeCap != nil {
-		balanceCheck.SetUint64(st.msg.GasLimit)
-		if _, overflow := balanceCheck.MulOverflow(balanceCheck, st.msg.GasFeeCap); overflow {
-			return fmt.Errorf("%w: address %v required balance exceeds 256 bits", ErrInsufficientFunds, st.msg.From.Hex())
+	if !st.evm.Config.IgnoreGasFeeCap {
+		if st.msg.GasFeeCap != nil {
+			balanceCheck.SetUint64(st.msg.GasLimit)
+			if _, overflow := balanceCheck.MulOverflow(balanceCheck, st.msg.GasFeeCap); overflow {
+				return fmt.Errorf("%w: address %v required balance exceeds 256 bits", ErrInsufficientFunds, st.msg.From.Hex())
+			}
 		}
 	}
-	if st.msg.Value != nil {
-		if _, overflow := balanceCheck.AddOverflow(balanceCheck, st.msg.Value); overflow {
-			return fmt.Errorf("%w: address %v required balance exceeds 256 bits", ErrInsufficientFunds, st.msg.From.Hex())
+	// Note: insufficient balance for **topmost** call isn't a consensus error in Opera, unlike Ethereum
+	// Such transaction will revert and consume sender's gas
+	if !st.evm.Config.InsufficientBalanceIsNotAnError {
+		if st.msg.Value != nil {
+			if _, overflow := balanceCheck.AddOverflow(balanceCheck, st.msg.Value); overflow {
+				return fmt.Errorf("%w: address %v required balance exceeds 256 bits", ErrInsufficientFunds, st.msg.From.Hex())
+			}
 		}
 	}
 
@@ -450,10 +456,20 @@ func (st *stateTransition) preCheck() error {
 	isOsaka := st.evm.ChainConfig().IsOsaka(st.evm.Context.BlockNumber, st.evm.Context.Time)
 	isAmsterdam := st.evm.ChainConfig().IsAmsterdam(st.evm.Context.BlockNumber, st.evm.Context.Time)
 	if !msg.SkipTransactionChecks {
+
 		// Verify tx gas limit does not exceed EIP-7825 cap.
-		if isOsaka && !isAmsterdam && msg.GasLimit > params.MaxTxGas {
-			return fmt.Errorf("%w (cap: %d, tx: %d)", ErrGasLimitTooHigh, params.MaxTxGas, msg.GasLimit)
+		if isOsaka && !isAmsterdam {
+			// This is a Sonic specific modification. If config.MaxTxGas is set, use it instead of
+			// the default params.MaxTxGas.
+			maxTxGas := params.MaxTxGas
+			if st.evm.Config.MaxTxGas != nil {
+				maxTxGas = *st.evm.Config.MaxTxGas
+			}
+			if msg.GasLimit > maxTxGas {
+				return fmt.Errorf("%w (cap: %d, tx: %d)", ErrGasLimitTooHigh, maxTxGas, msg.GasLimit)
+			}
 		}
+
 		// Make sure the sender is an EOA
 		code := st.state.GetCode(msg.From)
 		_, delegated := types.ParseDelegation(code)
@@ -593,8 +609,10 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	if value == nil {
 		value = new(uint256.Int)
 	}
-	if !value.IsZero() && !st.evm.Context.CanTransfer(st.state, msg.From, value) {
-		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From.Hex())
+	if !st.evm.Config.InsufficientBalanceIsNotAnError {
+		if !value.IsZero() && !st.evm.Context.CanTransfer(st.state, msg.From, value) {
+			return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From.Hex())
+		}
 	}
 
 	// Check whether the init code size has been exceeded.
@@ -644,6 +662,10 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	// gas allowance required to complete execution.
 	peakGasUsed := st.gasUsed()
 
+	if !rules.IsPrague {
+		st.chargeExcessGas(msg.From)
+	}
+
 	// Compute refund counter, capped to a refund quotient.
 	st.gasRemaining.Refund(st.calcRefund())
 
@@ -658,6 +680,8 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 		if peakGasUsed < floorDataGas {
 			peakGasUsed = floorDataGas
 		}
+
+		st.chargeExcessGas(msg.From)
 	}
 	// Return gas to the user
 	st.returnGas()
@@ -686,7 +710,7 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 		// Skip fee payment when NoBaseFee is set and the fee fields
 		// are 0. This avoids a negative effectiveTip being applied to
 		// the coinbase when simulating calls.
-	} else {
+	} else if !st.evm.Config.SkipTipPaymentToCoinbase {
 		fee := new(uint256.Int).SetUint64(st.gasUsed())
 		fee.Mul(fee, effectiveTip)
 		st.state.AddBalance(st.evm.Context.Coinbase, fee, tracing.BalanceIncreaseRewardTransactionFee)
@@ -707,6 +731,17 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 		Err:        vmerr,
 		ReturnData: ret,
 	}, nil
+}
+
+// chargeExcessGas is a Fantom modification: for all transactions that are not internal
+// transactions, charge 10% of remaining gas. This should avoid gas-overspending in
+// transactions, filling up blocks.
+func (st *stateTransition) chargeExcessGas(from common.Address) {
+	if st.evm.Config.ChargeExcessGas {
+		if from != (common.Address{}) {
+			st.gasRemaining.RegularGas = st.gasRemaining.RegularGas - st.gasRemaining.RegularGas/10
+		}
+	}
 }
 
 // validateAuthorization validates an EIP-7702 authorization against the state.
