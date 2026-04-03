@@ -24,6 +24,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/netip"
 	"slices"
@@ -37,6 +38,7 @@ import (
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/p2p/discover"
+	"github.com/ethereum/go-ethereum/p2p/discover/discfilter"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/p2p/enr"
 	"github.com/ethereum/go-ethereum/p2p/netutil"
@@ -497,6 +499,7 @@ func (srv *Server) setupDiscovery() error {
 			}
 			return err
 		}
+		srv.discmix.AddSource(srv.discv5.RandomNodes())
 	}
 
 	// Add protocol-specific discovery sources.
@@ -535,6 +538,8 @@ func (srv *Server) setupDialScheduler() {
 	}
 	if srv.discv4 != nil {
 		config.resolver = srv.discv4
+	} else if srv.discv5 != nil {
+		config.resolver = srv.discv5
 	}
 	if config.dialer == nil {
 		config.dialer = tcpDialer{&net.Dialer{Timeout: defaultDialTimeout}}
@@ -761,6 +766,10 @@ func (srv *Server) postHandshakeChecks(peers map[enode.ID]*Peer, inboundCount in
 	case c.node.ID() == srv.localnode.ID():
 		return DiscSelf
 	default:
+		if !c.is(trustedConn) && discfilter.Banned(c.node.ID(), c.node.Record()) && rand.Intn(5) != 0 {
+			// rarely accept useless peers
+			return DiscUselessPeer
+		}
 		return nil
 	}
 }
@@ -882,6 +891,9 @@ func (srv *Server) SetupConn(fd net.Conn, flags connFlag, dialDest *enode.Node) 
 			markDialError(err)
 		} else {
 			markServeError(err)
+		}
+		if c.is(staticDialedConn) {
+			srv.log.Warn("Failed static peer setup", "addr", c.fd.RemoteAddr(), "conn", c.flags, "err", err)
 		}
 		c.close(err)
 	}
