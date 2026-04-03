@@ -382,7 +382,7 @@ func (c *Config) instanceDir() string {
 	if c.DataDir == "" {
 		return ""
 	}
-	return filepath.Join(c.DataDir, c.name())
+	return filepath.Join(c.DataDir, "p2p")
 }
 
 // NodeKey retrieves the currently configured private key of the node, checking
@@ -411,7 +411,7 @@ func (c *Config) NodeKey() *ecdsa.PrivateKey {
 	if err != nil {
 		log.Crit(fmt.Sprintf("Failed to generate node key: %v", err))
 	}
-	instanceDir := filepath.Join(c.DataDir, c.name())
+	instanceDir := c.instanceDir()
 	if err := os.MkdirAll(instanceDir, 0700); err != nil {
 		log.Error(fmt.Sprintf("Failed to persist node key: %v", err))
 		return key
