@@ -29,7 +29,7 @@ func TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet(t *testing.T) {
 		},
 		"default initCodeSize above limit": {
 			initCodeSize:  params.MaxInitCodeSize + 1,
-			expectedError: ErrMaxInitCodeSizeExceeded,
+			expectedError: vm.ErrMaxInitCodeSizeExceeded,
 		},
 		"custom initCodeSize limit": {
 			maxInitCodeSize: asPointer(customLimit),
@@ -38,7 +38,7 @@ func TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet(t *testing.T) {
 		"custom initCodeSize above limit": {
 			maxInitCodeSize: asPointer(customLimit),
 			initCodeSize:    uint64(customLimit + 1),
-			expectedError:   ErrMaxInitCodeSizeExceeded,
+			expectedError:   vm.ErrMaxInitCodeSizeExceeded,
 		},
 	}
 
@@ -55,7 +55,7 @@ func TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet(t *testing.T) {
 			}
 			blockContext := vm.BlockContext{
 				CanTransfer: func(vm.StateDB, common.Address, *uint256.Int) bool { return true },
-				Transfer:    func(vm.StateDB, common.Address, common.Address, *uint256.Int) {},
+				Transfer:    func(vm.StateDB, common.Address, common.Address, *uint256.Int, *params.Rules) {},
 				BlockNumber: big.NewInt(10),
 				BaseFee:     big.NewInt(0),
 				Random:      &common.Hash{0x42},
@@ -78,8 +78,7 @@ func TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet(t *testing.T) {
 				SkipTransactionChecks: true,
 			}
 
-			gasPool := new(GasPool)
-			gasPool.AddGas(1_000_000)
+			gasPool := NewGasPool(1_000_000)
 
 			stateTransition := newStateTransition(evm, message, gasPool)
 

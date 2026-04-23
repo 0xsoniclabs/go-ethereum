@@ -167,7 +167,7 @@ func runTestTransactionAndGetBalance(
 ) (*ExecutionResult, *uint256.Int, error) {
 	evm := vm.NewEVM(
 		vm.BlockContext{
-			Transfer:    func(vm.StateDB, common.Address, common.Address, *uint256.Int) {},
+			Transfer:    func(vm.StateDB, common.Address, common.Address, *uint256.Int, *params.Rules) {},
 			CanTransfer: func(vm.StateDB, common.Address, *uint256.Int) bool { return true },
 			Coinbase:    testCoinbase,
 		},
@@ -194,8 +194,7 @@ func runTestTransactionAndGetBalance(
 		msg.Value = big.NewInt(0)
 	}
 
-	pool := new(GasPool)
-	pool.AddGas(100_000)
+	pool := NewGasPool(100_000)
 
 	result, err := ApplyMessage(evm, msg, pool)
 	return result, evm.StateDB.GetBalance(address), err

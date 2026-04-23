@@ -625,7 +625,7 @@ func (evm *EVM) initNewContract(contract *Contract, address common.Address) ([]b
 	}
 
 	// Check whether the max code size has been exceeded, assign err if the case.
-	if err := CheckMaxCodeSize(&evm.chainRules, uint64(len(ret))); err != nil {
+	if err := CheckMaxCodeSize(&evm.chainRules, uint64(len(ret)), evm.Config.MaxCodeSize); err != nil {
 		return ret, err
 	}
 

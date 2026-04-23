@@ -182,7 +182,16 @@ func TestCustomCodeSize_GasCreateEip3860AllowsCustomMaxInitCodeSize(t *testing.T
 			config := Config{
 				MaxInitCodeSize: test.maxInitCodeSize,
 			}
-			evm := NewEVM(BlockContext{}, stateDB, &params.ChainConfig{}, config)
+			time := uint64(0)
+			chainConfig := &params.ChainConfig{
+				LondonBlock:  big.NewInt(0),
+				ShanghaiTime: &time,
+			}
+			blockContext := BlockContext{
+				BlockNumber: big.NewInt(10),
+				Random:      &common.Hash{0x42},
+			}
+			evm := NewEVM(blockContext, stateDB, chainConfig, config)
 
 			stack := newstack()
 			stack.Push(uint256.NewInt(test.initCodeSize))
