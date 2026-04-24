@@ -321,7 +321,7 @@ func gasCreateEip3860(evm *EVM, contract *Contract, stack *Stack, mem *Memory, m
 	if overflow {
 		return GasCosts{}, ErrGasUintOverflow
 	}
-	if err := CheckMaxInitCodeSize(&evm.chainRules, size); err != nil {
+	if err := CheckMaxInitCodeSize(&evm.chainRules, size, evm.Config.MaxInitCodeSize); err != nil {
 		return GasCosts{}, err
 	}
 	// Since size <= the protocol-defined maximum initcode size limit, these multiplication cannot overflow
@@ -340,7 +340,7 @@ func gasCreate2Eip3860(evm *EVM, contract *Contract, stack *Stack, mem *Memory, 
 	if overflow {
 		return GasCosts{}, ErrGasUintOverflow
 	}
-	if err := CheckMaxInitCodeSize(&evm.chainRules, size); err != nil {
+	if err := CheckMaxInitCodeSize(&evm.chainRules, size, evm.Config.MaxInitCodeSize); err != nil {
 		return GasCosts{}, err
 	}
 	// Since size <= the protocol-defined maximum initcode size limit, these multiplication cannot overflow

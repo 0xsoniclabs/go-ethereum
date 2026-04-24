@@ -88,7 +88,7 @@ func ValidateTransaction(tx *types.Transaction, head *types.Header, signer types
 	}
 	// Check whether the init code size has been exceeded
 	if tx.To() == nil {
-		if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(tx.Data()))); err != nil {
+		if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(tx.Data())), nil); err != nil {
 			return err
 		}
 	}

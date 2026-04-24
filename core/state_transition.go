@@ -617,7 +617,7 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 
 	// Check whether the init code size has been exceeded.
 	if contractCreation {
-		if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(msg.Data))); err != nil {
+		if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(msg.Data)), st.evm.Config.MaxInitCodeSize); err != nil {
 			return nil, err
 		}
 	}

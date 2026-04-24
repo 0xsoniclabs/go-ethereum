@@ -26,8 +26,12 @@ import (
 )
 
 // CheckMaxInitCodeSize checks the size of contract initcode against the protocol-defined limit.
-func CheckMaxInitCodeSize(rules *params.Rules, size uint64) error {
-	if rules.IsAmsterdam {
+func CheckMaxInitCodeSize(rules *params.Rules, size uint64, sonicMaxInitCodeSize *int) error {
+	if sonicMaxInitCodeSize != nil {
+		if size > uint64(*sonicMaxInitCodeSize) {
+			return fmt.Errorf("%w: init code size %v limit %v", ErrMaxInitCodeSizeExceeded, size, *sonicMaxInitCodeSize)
+		}
+	} else if rules.IsAmsterdam {
 		if size > params.MaxInitCodeSizeAmsterdam {
 			return fmt.Errorf("%w: code size %v limit %v", ErrMaxInitCodeSizeExceeded, size, params.MaxInitCodeSizeAmsterdam)
 		}
@@ -41,8 +45,12 @@ func CheckMaxInitCodeSize(rules *params.Rules, size uint64) error {
 }
 
 // CheckMaxCodeSize checks the size of contract code against the protocol-defined limit.
-func CheckMaxCodeSize(rules *params.Rules, size uint64) error {
-	if rules.IsAmsterdam {
+func CheckMaxCodeSize(rules *params.Rules, size uint64, sonicMaxCodeSize *int) error {
+	if sonicMaxCodeSize != nil {
+		if size > uint64(*sonicMaxCodeSize) {
+			return fmt.Errorf("%w: code size %v limit %v", ErrMaxCodeSizeExceeded, size, *sonicMaxCodeSize)
+		}
+	} else if rules.IsAmsterdam {
 		if size > params.MaxCodeSizeAmsterdam {
 			return fmt.Errorf("%w: code size %v limit %v", ErrMaxCodeSizeExceeded, size, params.MaxCodeSizeAmsterdam)
 		}

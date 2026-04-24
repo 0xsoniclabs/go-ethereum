@@ -180,7 +180,7 @@ func Transaction(ctx *cli.Context) error {
 		}
 		// Check whether the init code size has been exceeded.
 		if tx.To() == nil {
-			if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(tx.Data()))); err != nil {
+			if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(tx.Data())), nil); err != nil {
 				r.Error = err
 			}
 		}
