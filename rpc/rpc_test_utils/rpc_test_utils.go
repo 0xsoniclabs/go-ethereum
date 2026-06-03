@@ -3,6 +3,7 @@ package rpc_test_utils
 import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/ethereum/go-ethereum/internal/debug"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -14,6 +15,16 @@ func GetRpcApis() []rpc.API {
 	apis := ethapi.GetAPIs(backend)
 	apis = append(apis, tracers.APIs(nil)...)
 	return apis
+}
+
+// GetDebugHandlerApis returns the debug.Handler APIs for RPC testing
+func GetDebugHandlerApis() []rpc.API {
+	return []rpc.API{
+		{
+			Namespace: "debug",
+			Service:   debug.Handler,
+		},
+	}
 }
 
 type dummyBackend struct {
