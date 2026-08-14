@@ -31,6 +31,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/p2p/discover/discfilter"
 	"github.com/ethereum/go-ethereum/p2p/discover/v4wire"
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/p2p/netutil"
@@ -763,6 +764,10 @@ func (t *UDPv4) handleFindnode(h *packetHandlerV4, from netip.AddrPort, fromID e
 	p := v4wire.Neighbors{Expiration: uint64(time.Now().Add(expiration).Unix())}
 	var sent bool
 	for _, n := range closest {
+		// Sonic: don't advertise banned nodes (bots) to other peers.
+		if discfilter.Banned(n.ID(), n.Record()) {
+			continue
+		}
 		if netutil.CheckRelayAddr(from.Addr(), n.IPAddr()) == nil {
 			p.Nodes = append(p.Nodes, nodeToRPC(n))
 		}
