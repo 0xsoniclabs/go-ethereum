@@ -61,3 +61,32 @@ help: Makefile
 	@echo ''
 	@echo 'Targets:'
 	@sed -n 's/^#?//p' $< | column -t -s ':' |  sort | sed -e 's/^/ /'
+
+# --- Sonic additions -------------------------------------------------------
+
+.PHONY: test-sonic-hooks
+
+# The Sonic hook-liveness suite. Each of its tests flips one Sonic modification
+# and asserts that observable behavior changes, so that an upstream rebase which
+# drops a hook while still compiling fails here. SONIC_HOOK_TESTS must stay equal
+# to sonicHookTestPrefixes in core/vm/sonic_hook_registry_test.go, which asserts
+# that every hook's pinning test is selected by this pattern.
+SONIC_HOOK_PACKAGES = ./core ./core/vm ./core/state
+SONIC_HOOK_TESTS = ^(TestCallInterceptor_|TestCustomCodeSize_|TestEthTransferLogs|TestGetInterpreter_|TestHookedStateDB_|TestSonicHookRegistry_|TestStatePrecompiles_|TestStateTransition_)
+
+#? test-sonic-hooks: Verify every Sonic modification is still wired in - run after any upstream rebase.
+test-sonic-hooks:
+	@echo "Running the Sonic hook-liveness suite over $(SONIC_HOOK_PACKAGES)"
+	@echo
+	@if go test -count=1 -run '$(SONIC_HOOK_TESTS)' $(SONIC_HOOK_PACKAGES); then \
+		echo; \
+		echo "PASS  Every Sonic hook in the registry is still wired in and effective."; \
+	else \
+		echo; \
+		echo "FAIL  At least one Sonic modification is no longer effective."; \
+		echo "      Read the failure message above: it names the hook and where it is wired."; \
+		echo "      SONIC_HOOKS.md lists the full inventory and the test pinning each hook."; \
+		echo "      Re-run a single case with:"; \
+		echo "        go test ./core/... -run '<TestName>' -v"; \
+		exit 1; \
+	fi
