@@ -14,10 +14,6 @@ import (
 )
 
 func TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet(t *testing.T) {
-	asPointer := func(v int) *int {
-		return &v
-	}
-
 	customLimit := 100_000
 	tests := map[string]struct {
 		maxInitCodeSize         *int
