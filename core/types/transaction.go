@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -61,6 +62,11 @@ type Transaction struct {
 	hash atomic.Pointer[common.Hash]
 	size atomic.Uint64
 	from atomic.Pointer[sigCache]
+
+	// Sonic: cache for arbitrary payloads associated with the transaction,
+	// accessed via the GetSonicPayload and SetSonicPayload functions in
+	// core/types/sonic_extensions.go.
+	extraPayload sync.Map
 }
 
 // NewTx creates a new transaction.
