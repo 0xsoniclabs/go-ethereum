@@ -18,6 +18,7 @@ package vm
 
 import (
 	"fmt"
+	gomath "math"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
@@ -32,6 +33,29 @@ type Config struct {
 	NoBaseFee               bool  // Forces the EIP-1559 baseFee to 0 (needed for 0 price calls)
 	EnablePreimageRecording bool  // Enables recording of SHA3/keccak preimages
 	ExtraEips               []int // Additional EIPS that are to be enabled
+
+	// -- Sonic specific configuration options --
+	// Every field below is a Sonic addition. At its zero value the EVM behaves as
+	// the vanilla Ethereum EVM; the Sonic main-net behavior needs all of the flags
+	// enabled. Future networks may have different configurations. Each field is
+	// pinned by a hook-liveness test - see SONIC_HOOKS.md.
+
+	StatePrecompiles map[common.Address]PrecompiledStateContract // Custom precompiled contracts with state access
+
+	Interpreter           InterpreterFactory // The interpreter implementation to use for non-tracing executions. If nil, EVMInterpreter will be used.
+	InterpreterForTracing InterpreterFactory // The interpreter implementation to use for tracing executions. If nil, Interpreter will be used.
+
+	ChargeExcessGas                 bool // if enabled, 10% of excessive gas is charged for the execution
+	IgnoreGasFeeCap                 bool // if enabled, gas fee cap is ignored
+	InsufficientBalanceIsNotAnError bool // if enabled, insufficient balance is treated as a revert, not an execution error on the top level
+	SkipTipPaymentToCoinbase        bool // if enabled, tip payment is not made to the coinbase address
+
+	// MaxTxGas is the maximum gas allowed per transaction.
+	// If nil, this is interpreted as "not set" and the default params value is used.
+	MaxTxGas *uint64
+
+	MaxCodeSize     *int // Maximum code size allowed for a contract. If nil, the default params value is used.
+	MaxInitCodeSize *int // Maximum init code size allowed for a contract. If nil, the default params value is used.
 }
 
 // ScopeContext contains the things that are per-call, such as stack and memory,
@@ -93,6 +117,43 @@ func (ctx *ScopeContext) ContractCode() []byte {
 // considered a revert-and-consume-all-gas operation except for
 // ErrExecutionReverted which means revert-and-keep-gas-left.
 func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
+	// Sonic: upstream's loop lives in evmInterpreter.runSteps below. Run only
+	// re-directs to the configured interpreter implementation, which is the hook-in
+	// point for alternative interpreters such as Tosca's (core/vm/sonic_tosca_integration.go).
+	return getInterpreter(evm).Interpret(contract, input, readOnly)
+}
+
+// Sonic: evmInterpreter wraps upstream's interpreter loop as an Interpreter, so
+// that it can be selected through Config.Interpreter like any other.
+type evmInterpreter struct {
+	evm *EVM
+}
+
+func (i evmInterpreter) Interpret(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
+	state := InterpreterState{
+		Contract: contract,
+		Stack:    newstack(),
+		Memory:   NewMemory(),
+		Input:    input,
+		ReadOnly: readOnly,
+	}
+	defer func() {
+		returnStack(state.Stack)
+		state.Memory.Free()
+	}()
+	return i.runSteps(&state, gomath.MaxUint64)
+}
+
+// Sonic: runSteps is upstream's EVM.Run body, reworked so that stack, memory and
+// program counter live in a caller-owned InterpreterState and execution can stop
+// after maxSteps. This is what backs EVM.Step and Tosca's conformance tests; the
+// individual departures from upstream are marked below.
+func (i evmInterpreter) runSteps(state *InterpreterState, maxSteps uint64) (ret []byte, err error) {
+	evm := i.evm
+	contract := state.Contract
+	input := state.Input
+	readOnly := state.ReadOnly
+
 	// Increment the call depth which is restricted to 1024
 	evm.depth++
 	defer func() { evm.depth-- }()
@@ -104,21 +165,26 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		defer func() { evm.readOnly = false }()
 	}
 
-	// Reset the previous call's return data. It's unimportant to preserve the old buffer
-	// as every returning call will return new data anyway.
-	evm.returnData = nil
+	// Sonic: upstream resets evm.returnData to nil here. Resuming a stepped
+	// execution has to restore the previous call's return data instead; in a
+	// regular run context LastCallReturnData is nil and the effect is the same.
+	evm.returnData = state.LastCallReturnData
 
 	// Don't bother with the execution if there's no code.
 	if len(contract.Code) == 0 {
+		// Sonic: report no code as STOP to the caller of a stepped execution.
+		state.Error = errStopToken
 		return nil, nil
 	}
 
 	var (
-		op          OpCode     // current opcode
-		jumpTable   *JumpTable = evm.table
-		mem                    = NewMemory() // bound memory
-		stack                  = newstack()  // local stack
-		callContext            = &ScopeContext{
+		op        OpCode     // current opcode
+		jumpTable *JumpTable = evm.table
+		// Sonic: memory, stack and pc come from the caller-owned state instead of
+		// being allocated here, so an execution can be suspended and resumed.
+		mem         = state.Memory
+		stack       = state.Stack
+		callContext = &ScopeContext{
 			Memory:   mem,
 			Stack:    stack,
 			Contract: contract,
@@ -126,7 +192,7 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		// For optimisation reason we're using uint64 as the program counter.
 		// It's theoretically possible to go above 2^64. The YP defines the PC
 		// to be uint256. Practically much less so feasible.
-		pc   = uint64(0) // program counter
+		pc   = state.Pc // program counter
 		cost uint64
 		// copies used by tracer
 		pcCopy    uint64 // needed for the deferred EVMLogger
@@ -136,13 +202,11 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		debug     = evm.Config.Tracer != nil
 		isEIP4762 = evm.chainRules.IsEIP4762
 	)
-	// Don't move this deferred function, it's placed before the OnOpcode-deferred method,
-	// so that it gets executed _after_: the OnOpcode needs the stacks before
-	// they are returned to the pools
-	defer func() {
-		returnStack(stack)
-		mem.Free()
-	}()
+
+	// Sonic: upstream returns the stack and frees the memory in a deferred function
+	// here. Both are owned by the caller now and released in Interpret instead, so
+	// that a suspended execution keeps them.
+
 	contract.Input = input
 
 	if debug {
@@ -162,8 +226,11 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 	// explicit STOP, RETURN or SELFDESTRUCT is executed, an error occurred during
 	// the execution of one of the operations or until the done flag is set by the
 	// parent context.
+	// Sonic: the loop is additionally bounded by maxSteps, which is what lets Tosca's
+	// conformance tests execute a fixed number of steps. A regular run passes
+	// math.MaxUint64 and is unaffected.
 	_ = jumpTable[0] // nil-check the jumpTable out of the loop
-	for {
+	for steps := uint64(0); steps < maxSteps; steps++ {
 		if debug {
 			// Capture pre-execution values for tracing.
 			logged, pcCopy, gasCopy = false, pc, contract.Gas
@@ -253,6 +320,10 @@ func (evm *EVM) Run(contract *Contract, input []byte, readOnly bool) (ret []byte
 		}
 		pc++
 	}
+
+	// Sonic: hand the resume point and the stop reason back to the caller.
+	state.Pc = pc
+	state.Error = err
 
 	if err == errStopToken {
 		err = nil // clear stop token error
