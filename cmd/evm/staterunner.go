@@ -26,6 +26,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/internal/flags"
 	"github.com/ethereum/go-ethereum/tests"
@@ -129,15 +130,18 @@ func runStateTest(ctx *cli.Context, fname string) ([]testResult, error) {
 			}
 			// Run the test and aggregate the result
 			result := &testResult{Name: key, Fork: st.Fork, Pass: true}
-			test.Run(st, cfg, false, rawdb.HashScheme, func(err error, state *tests.StateTestState) {
+			// Sonic: StateTestState.StateDB is an interface so Carmen can be injected
+			// (see tests/sonic_db_factory.go), hence the assertion to the geth type
+			// below; the parameter is renamed to keep the state package accessible.
+			test.Run(st, cfg, false, rawdb.HashScheme, func(err error, testState *tests.StateTestState) {
 				var root common.Hash
-				if state.StateDB != nil {
-					root = state.StateDB.IntermediateRoot(false)
+				if testState.StateDB != nil {
+					root = testState.StateDB.IntermediateRoot(false)
 					result.Root = &root
 					fmt.Fprintf(os.Stderr, "{\"stateRoot\": \"%#x\"}\n", root)
 					// Dump any state to aid debugging.
 					if ctx.Bool(DumpFlag.Name) {
-						result.State = dump(state.StateDB)
+						result.State = dump(testState.StateDB.(*state.StateDB))
 					}
 				}
 				// Collect bench stats if requested.
