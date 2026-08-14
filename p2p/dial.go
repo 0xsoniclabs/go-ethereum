@@ -595,7 +595,13 @@ func (t *dialTask) run(d *dialScheduler) {
 		var dialErr *dialError
 		if errors.As(err, &dialErr) && t.isStatic() {
 			if t.resolve(d) {
-				t.dial(d, t.dest())
+				// Sonic: upstream discards the retry dial's error, so a static peer
+				// that keeps failing does so silently. Keep the error and log it.
+				err = t.dial(d, t.dest())
+			}
+			if err != nil {
+				addr, _ := t.dest().TCPEndpoint()
+				d.log.Warn("Failed to dial static peer", "id", t.dest().ID(), "addr", addr, "conn", t.flags, "err", cleanupDialErr(err))
 			}
 		}
 	}

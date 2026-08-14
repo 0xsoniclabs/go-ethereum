@@ -105,7 +105,8 @@ func TestNodeKeyPersistency(t *testing.T) {
 	// Create a temporary folder and make sure no key is present
 	dir := t.TempDir()
 
-	keyfile := filepath.Join(dir, "unit-test", datadirPrivateKey)
+	// Sonic: the instance directory is fixed to "p2p" rather than the node name.
+	keyfile := filepath.Join(dir, "p2p", datadirPrivateKey)
 
 	// Configure a node with a preset key and ensure it's not persisted
 	key, err := crypto.GenerateKey()
@@ -146,7 +147,8 @@ func TestNodeKeyPersistency(t *testing.T) {
 	// Configure ephemeral node and ensure no key is dumped locally
 	config = &Config{Name: "unit-test", DataDir: ""}
 	config.NodeKey()
-	if _, err := os.Stat(filepath.Join(".", "unit-test", datadirPrivateKey)); err == nil {
+	// Sonic: the instance directory is fixed to "p2p" rather than the node name.
+	if _, err := os.Stat(filepath.Join(".", "p2p", datadirPrivateKey)); err == nil {
 		t.Fatalf("ephemeral node key persisted to disk")
 	}
 }
