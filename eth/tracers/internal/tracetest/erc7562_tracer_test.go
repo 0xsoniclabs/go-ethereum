@@ -116,6 +116,7 @@ func TestErc7562Tracer(t *testing.T) {
 			}
 			logState := vm.StateDB(st.StateDB)
 			if tracer.Hooks != nil {
+				// Sonic: StateTestState.StateDB is an interface, so assert the geth type.
 				logState = state.NewHookedState(st.StateDB.(*state.StateDB), tracer.Hooks)
 			}
 			msg, err := core.TransactionToMessage(tx, signer, context.BaseFee)

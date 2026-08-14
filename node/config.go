@@ -382,6 +382,9 @@ func (c *Config) instanceDir() string {
 	if c.DataDir == "" {
 		return ""
 	}
+	// Sonic: fixed to "p2p" instead of c.name(). Config.Name cannot be used to the
+	// same effect because name() also feeds NodeName() (the devp2p handshake
+	// identity) and the IPC path. This is an on-disk layout commitment.
 	return filepath.Join(c.DataDir, "p2p")
 }
 
@@ -411,7 +414,7 @@ func (c *Config) NodeKey() *ecdsa.PrivateKey {
 	if err != nil {
 		log.Crit(fmt.Sprintf("Failed to generate node key: %v", err))
 	}
-	instanceDir := c.instanceDir()
+	instanceDir := c.instanceDir() // Sonic: was filepath.Join(c.DataDir, c.name())
 	if err := os.MkdirAll(instanceDir, 0700); err != nil {
 		log.Error(fmt.Sprintf("Failed to persist node key: %v", err))
 		return key

@@ -414,7 +414,7 @@ func TestStateTransition_GasTipPaymentToCoinbaseCanBeSkipped(t *testing.T) {
 	if err != nil {
 		t.Errorf("transaction failed: %v", err)
 	}
-	if got, want := balance.Uint64(), uint64(1_000_000+result.UsedGas*5); got != want {
+	if got, want := balance.Uint64(), 1_000_000+result.UsedGas*5; got != want {
 		t.Errorf("expected coinbase balance to be %d, got %d", want, got)
 	}
 

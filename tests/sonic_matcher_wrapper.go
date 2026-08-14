@@ -1,8 +1,9 @@
 package tests
 
 import (
-	"github.com/ethereum/go-ethereum/params"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/params"
 )
 
 type TestMatcher struct {

@@ -56,6 +56,9 @@ type PrecompiledContract interface {
 // PrecompiledContracts contains the precompiled contracts supported at the given fork.
 type PrecompiledContracts map[common.Address]PrecompiledContract
 
+// Sonic: PrecompiledStateContract is a precompile with access to the state and the
+// execution context, which Sonic needs for the evmwriter precompile. Registered
+// through Config.StatePrecompiles and dispatched from EVM.Call.
 type PrecompiledStateContract interface {
 	Run(stateDB StateDB, blockCtx BlockContext, txCtx TxContext, caller common.Address, input []byte, suppliedGas uint64) ([]byte, uint64, error) // Run runs the precompiled contract
 }

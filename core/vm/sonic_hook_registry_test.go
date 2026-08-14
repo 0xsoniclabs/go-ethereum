@@ -309,14 +309,14 @@ var sonicHookSites = []hookSite{
 	},
 	{
 		hook:   "Config.Interpreter",
-		wiring: "consulted twice - a nil check and a call - in getInterpreter (core/vm/tosca_integration.go)",
+		wiring: "consulted twice - a nil check and a call - in getInterpreter (core/vm/sonic_tosca_integration.go)",
 		dirs:   []string{coreVmDir},
 		count:  2,
 		match:  sonicFieldRef("Interpreter"),
 	},
 	{
 		hook:   "Config.InterpreterForTracing",
-		wiring: "consulted twice - a nil check and a call - in getInterpreter (core/vm/tosca_integration.go)",
+		wiring: "consulted twice - a nil check and a call - in getInterpreter (core/vm/sonic_tosca_integration.go)",
 		dirs:   []string{coreVmDir},
 		count:  2,
 		match:  sonicFieldRef("InterpreterForTracing"),

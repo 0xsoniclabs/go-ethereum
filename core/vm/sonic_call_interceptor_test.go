@@ -19,7 +19,7 @@ import (
 // point still compiles and silently bypasses Tosca for that call kind.
 //
 // Wiring:
-//   - interface: CallContextInterceptor in core/vm/tosca_integration.go
+//   - interface: CallContextInterceptor in core/vm/sonic_tosca_integration.go
 //   - field:     EVM.CallInterceptor in core/vm/evm.go
 //   - hook sites: the "if evm.CallInterceptor != nil" early returns in
 //     EVM.Call, CallCode, DelegateCall, StaticCall, Create and Create2.

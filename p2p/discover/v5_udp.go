@@ -939,7 +939,7 @@ func (t *UDPv5) collectTableNodes(rip netip.Addr, distances []uint, limit int) [
 			if netutil.CheckRelayAddr(rip, n.IPAddr()) != nil {
 				continue
 			}
-			// Don't advertise the bots
+			// Sonic: don't advertise banned nodes (bots) to other peers.
 			if discfilter.Banned(n.ID(), n.Record()) {
 				continue
 			}

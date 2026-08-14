@@ -77,6 +77,9 @@ func NewID(config *params.ChainConfig, genesis *types.Block, head, time uint64) 
 	return NewId(config, genesis.Hash(), genesis.Time(), head, time)
 }
 
+// Sonic: NewId is NewID's body, taking the genesis hash and time directly instead
+// of a full block. Sonic has no genesis block to hand and gatherForks is
+// unexported, so it cannot compute a fork ID without this entry point.
 func NewId(config *params.ChainConfig, genesisHash common.Hash, genesisTime uint64, head, time uint64) ID {
 	// Calculate the starting checksum from the genesis hash
 	hash := crc32.ChecksumIEEE(genesisHash.Bytes())

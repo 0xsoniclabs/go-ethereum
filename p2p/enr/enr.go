@@ -144,6 +144,8 @@ func (r *Record) Load(e Entry) error {
 	return &KeyError{Key: e.ENRKey(), Err: errNotFound}
 }
 
+// Sonic: ContainsKey reports whether the record carries the given key. Load needs a
+// typed enr.Entry, which discfilter.BannedStatic does not have.
 func (r *Record) ContainsKey(key string) bool {
 	i := sort.Search(len(r.pairs), func(i int) bool { return r.pairs[i].k >= key })
 	return i < len(r.pairs) && r.pairs[i].k == key

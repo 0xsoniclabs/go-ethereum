@@ -317,6 +317,8 @@ func gasCreateEip3860(evm *EVM, contract *Contract, stack *Stack, mem *Memory, m
 	if overflow {
 		return 0, ErrGasUintOverflow
 	}
+	// Sonic: goes through the EVM so that Config.MaxInitCodeSizeVMCreate can
+	// override the protocol limit (core/vm/sonic_code_size.go).
 	if err := evm.CheckInitCodeSizeVMCreate(size); err != nil {
 		return 0, err
 	}
@@ -336,6 +338,8 @@ func gasCreate2Eip3860(evm *EVM, contract *Contract, stack *Stack, mem *Memory, 
 	if overflow {
 		return 0, ErrGasUintOverflow
 	}
+	// Sonic: goes through the EVM so that Config.MaxInitCodeSizeVMCreate can
+	// override the protocol limit (core/vm/sonic_code_size.go).
 	if err := evm.CheckInitCodeSizeVMCreate(size); err != nil {
 		return 0, err
 	}

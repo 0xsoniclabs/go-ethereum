@@ -130,6 +130,9 @@ func runStateTest(ctx *cli.Context, fname string) ([]testResult, error) {
 			}
 			// Run the test and aggregate the result
 			result := &testResult{Name: key, Fork: st.Fork, Pass: true}
+			// Sonic: StateTestState.StateDB is an interface so Carmen can be injected
+			// (see tests/sonic_db_factory.go), hence the assertion to the geth type
+			// below; the parameter is renamed to keep the state package accessible.
 			test.Run(st, cfg, false, rawdb.HashScheme, func(err error, testState *tests.StateTestState) {
 				var root common.Hash
 				if testState.StateDB != nil {

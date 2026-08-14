@@ -223,8 +223,10 @@ func (t *StateTest) Run(subtest StateSubtest, vmconfig vm.Config, snapshotter bo
 	return t.RunWith(subtest, vmconfig, factory, postCheck)
 }
 
-// RunWith executes a specific subtest and verifies the post-state and logs.
-// It allows for injecting a custom TestContextFactory configuring state processor components.
+// Sonic: RunWith executes a specific subtest and verifies the post-state and logs.
+// It allows for injecting a custom TestContextFactory configuring state processor
+// components, which is how tests/eth_exec_spec runs the Ethereum tests against
+// Carmen. Run keeps upstream's signature and delegates here.
 func (t *StateTest) RunWith(subtest StateSubtest, vmconfig vm.Config, factory TestContextFactory, postCheck func(err error, st *StateTestState)) (result error) {
 	st, root, _, err := t.RunNoVerifyWith(subtest, vmconfig, factory)
 	// Invoke the callback at the end of function for further analysis.
@@ -266,6 +268,9 @@ func (t *StateTest) RunWith(subtest StateSubtest, vmconfig vm.Config, factory Te
 	if logs := rlpHash(st.StateDB.Logs()); logs != common.Hash(post.Logs) {
 		return fmt.Errorf("post state logs hash mismatch: got %x, want %x", logs, post.Logs)
 	}
+	// Sonic: upstream re-opens st.StateDB at the post-state root here. That is
+	// dropped because StateDB is now an interface and the concrete database is
+	// owned by the TestContextFactory.
 	return nil
 }
 
@@ -276,9 +281,9 @@ func (t *StateTest) RunNoVerify(subtest StateSubtest, vmconfig vm.Config, snapsh
 	return t.RunNoVerifyWith(subtest, vmconfig, factory)
 }
 
-// RunNoVerifyWith runs a specific subtest and returns the statedb and post-state root.
-// Remember to call state.Close after verifying the test result!
-// It allows for injecting a custom TestContextFactory configuring state processor components.
+// Sonic: RunNoVerifyWith runs a specific subtest and returns the statedb and
+// post-state root, with an injectable TestContextFactory. Remember to call
+// state.Close after verifying the test result!
 func (t *StateTest) RunNoVerifyWith(subtest StateSubtest, vmconfig vm.Config, factory TestContextFactory) (st StateTestState, root common.Hash, gasUsed uint64, err error) {
 	config, eips, err := GetChainConfig(subtest.Fork)
 	if err != nil {
@@ -520,6 +525,8 @@ func vmTestBlockHash(n uint64) common.Hash {
 
 // StateTestState groups all the state database objects together for use in tests.
 type StateTestState struct {
+	// Sonic: upstream types this as *state.StateDB. It is the TestStateDB interface
+	// here (tests/sonic_db_factory.go) so that Carmen can be plugged in.
 	StateDB   TestStateDB
 	TrieDB    *triedb.Database
 	Snapshots *snapshot.Tree
@@ -531,8 +538,10 @@ func MakePreState(db ethdb.Database, accounts types.GenesisAlloc, snapshotter bo
 	return MakePreStateWith(accounts, factory)
 }
 
-// MakePreStateWith creates a state containing the given allocation.
-// It allows for injecting a custom TestContextFactory configuring database.
+// Sonic: MakePreStateWith creates a state containing the given allocation, using an
+// injectable TestContextFactory. MakePreState keeps upstream's signature and
+// delegates here. Everything from this point down is a Sonic addition: upstream's
+// MakePreState body now lives in gethFactory.NewTestStateDB.
 func MakePreStateWith(accounts types.GenesisAlloc, fact TestContextFactory) StateTestState {
 	st := fact.NewTestStateDB(accounts)
 	return st

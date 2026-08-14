@@ -63,8 +63,9 @@ type Transaction struct {
 	size atomic.Uint64
 	from atomic.Pointer[sigCache]
 
-	// extraPayload Atomic cache for arbitrary payloads associated with the transaction,
-	// accessed via the GetSonicPayload and SetSonicPayload functions.
+	// Sonic: cache for arbitrary payloads associated with the transaction,
+	// accessed via the GetSonicPayload and SetSonicPayload functions in
+	// core/types/sonic_extensions.go.
 	extraPayload sync.Map
 }
 

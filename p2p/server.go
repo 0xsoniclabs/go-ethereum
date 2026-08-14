@@ -499,6 +499,9 @@ func (srv *Server) setupDiscovery() error {
 			}
 			return err
 		}
+		// Sonic: Sonic sets Protocol.DialCandidates, which suppresses the
+		// default-feed block below, so the discv5 source has to be added here.
+		// Note that consumers which do not set DialCandidates get it added twice.
 		srv.discmix.AddSource(srv.discv5.RandomNodes())
 	}
 
@@ -539,6 +542,7 @@ func (srv *Server) setupDialScheduler() {
 	if srv.discv4 != nil {
 		config.resolver = srv.discv4
 	} else if srv.discv5 != nil {
+		// Sonic: fall back to discv5 for resolving; Sonic runs v5 only.
 		config.resolver = srv.discv5
 	}
 	if config.dialer == nil {
@@ -769,8 +773,9 @@ func (srv *Server) postHandshakeChecks(peers map[enode.ID]*Peer, inboundCount in
 	case c.node.ID() == srv.localnode.ID():
 		return DiscSelf
 	default:
+		// Sonic: reject banned peers, but accept one in five anyway so that a
+		// mistakenly banned node can recover.
 		if !c.is(trustedConn) && discfilter.Banned(c.node.ID(), c.node.Record()) && rand.Intn(5) != 0 {
-			// rarely accept useless peers
 			return DiscUselessPeer
 		}
 		return nil
@@ -900,6 +905,8 @@ func (srv *Server) SetupConn(fd net.Conn, flags connFlag, dialDest *enode.Node) 
 		} else {
 			markServeError(err)
 		}
+		// Sonic: surface static-peer setup failures, which upstream only logs at
+		// trace level.
 		if c.is(staticDialedConn) {
 			srv.log.Warn("Failed static peer setup", "addr", c.fd.RemoteAddr(), "conn", c.flags, "err", err)
 		}

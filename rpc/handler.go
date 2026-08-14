@@ -35,6 +35,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// Sonic: an execution time limit for RPC method calls, which upstream does not
+// have. It is process-global, so the default below applies to every consumer of
+// this package.
 var (
 	executionTimeLimit = atomic.Pointer[time.Duration]{}
 )
@@ -565,6 +568,7 @@ func (h *handler) handleCall(cp *callProc, msg *jsonrpcMessage) *jsonrpcMessage 
 	}
 	start := time.Now()
 
+	// Sonic: bound the method call by the configured execution time limit.
 	ctx, cancel := context.WithTimeout(ctx, getExecutionTimeLimit())
 	defer cancel()
 
