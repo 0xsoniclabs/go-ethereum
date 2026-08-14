@@ -46,6 +46,16 @@ func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 	return p, ok
 }
 
+// Sonic: statePrecompile looks up a state-aware precompile registered through
+// Config.StatePrecompiles. Upstream has no equivalent.
+func (evm *EVM) statePrecompile(addr common.Address) (PrecompiledStateContract, bool) {
+	if evm.Config.StatePrecompiles == nil {
+		return nil, false
+	}
+	p, ok := evm.Config.StatePrecompiles[addr]
+	return p, ok
+}
+
 // BlockContext provides the EVM with auxiliary information. Once provided
 // it shouldn't be modified.
 type BlockContext struct {
@@ -131,6 +141,11 @@ type EVM struct {
 	returnData []byte // Last CALL's return data for subsequent reuse
 
 	arena *stackArena
+
+	// Sonic: an optional override to intercept EVM calls, used by Tosca to route
+	// execution into its own interpreters. Every call entry point below dispatches
+	// to it when set; see core/vm/sonic_tosca_integration.go.
+	CallInterceptor CallContextInterceptor
 }
 
 // NewEVM constructs an EVM instance with the supplied block context, state
@@ -250,6 +265,10 @@ func isSystemCall(caller common.Address) bool {
 // the necessary steps to create accounts and reverses the state in case of an
 // execution error or failed value transfer.
 func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, gas GasBudget, value *uint256.Int) (ret []byte, result GasBudget, err error) {
+	// Sonic: route through the call interceptor when one is installed.
+	if evm.CallInterceptor != nil {
+		return evm.CallInterceptor.Call(evm, caller, addr, input, gas, value)
+	}
 	// Capture the tracer start/end events in debug mode
 	if evm.Config.Tracer != nil {
 		evm.captureBegin(evm.depth, CALL, caller, addr, input, gas, value.ToBig())
@@ -269,6 +288,10 @@ func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, g
 	}
 	snapshot := evm.StateDB.Snapshot()
 	p, isPrecompile := evm.precompile(addr)
+	// Sonic: state precompiles are resolved alongside the regular ones and feed the
+	// two conditions marked below.
+	sp, isStatePrecompile := evm.statePrecompile(addr)
+
 	if !evm.StateDB.Exist(addr) {
 		if !isPrecompile && evm.chainRules.IsEIP4762 && !isSystemCall(caller) {
 			// Add proof of absence to witness
@@ -285,7 +308,9 @@ func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, g
 			}
 		}
 
-		if !isPrecompile && evm.chainRules.IsEIP158 && value.IsZero() {
+		// Sonic: the !isStatePrecompile term keeps state precompiles from being
+		// treated as dead accounts by the EIP-158 guard.
+		if !isPrecompile && !isStatePrecompile && evm.chainRules.IsEIP158 && value.IsZero() {
 			// Calling a non-existing account, don't do anything.
 			return nil, gas, nil
 		}
@@ -300,6 +325,9 @@ func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, g
 
 	if isPrecompile {
 		ret, gas, err = RunPrecompiledContract(evm.StateDB, p, addr, input, gas, evm.Config.Tracer, evm.chainRules)
+		// Sonic: dispatch to a state precompile.
+	} else if isStatePrecompile {
+		ret, gas, err = sp.Run(evm.StateDB, evm.Context, evm.TxContext, caller, input, gas)
 	} else {
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		code := evm.resolveCode(addr)
@@ -337,6 +365,10 @@ func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, g
 // CallCode differs from Call in the sense that it executes the given address'
 // code with the caller as context.
 func (evm *EVM) CallCode(caller common.Address, addr common.Address, input []byte, gas GasBudget, value *uint256.Int) (ret []byte, result GasBudget, err error) {
+	// Sonic: route through the call interceptor when one is installed.
+	if evm.CallInterceptor != nil {
+		return evm.CallInterceptor.CallCode(evm, caller, addr, input, gas, value)
+	}
 	// Invoke tracer hooks that signal entering/exiting a call frame
 	if evm.Config.Tracer != nil {
 		evm.captureBegin(evm.depth, CALLCODE, caller, addr, input, gas, value.ToBig())
@@ -386,6 +418,10 @@ func (evm *EVM) CallCode(caller common.Address, addr common.Address, input []byt
 // DelegateCall differs from CallCode in the sense that it executes the given address'
 // code with the caller as context and the caller is set to the caller of the caller.
 func (evm *EVM) DelegateCall(originCaller common.Address, caller common.Address, addr common.Address, input []byte, gas GasBudget, value *uint256.Int) (ret []byte, result GasBudget, err error) {
+	// Sonic: route through the call interceptor when one is installed.
+	if evm.CallInterceptor != nil {
+		return evm.CallInterceptor.DelegateCall(evm, caller, addr, input, gas)
+	}
 	// Invoke tracer hooks that signal entering/exiting a call frame
 	if evm.Config.Tracer != nil {
 		// DELEGATECALL inherits value from parent call
@@ -429,6 +465,10 @@ func (evm *EVM) DelegateCall(originCaller common.Address, caller common.Address,
 // Opcodes that attempt to perform such modifications will result in exceptions
 // instead of performing the modifications.
 func (evm *EVM) StaticCall(caller common.Address, addr common.Address, input []byte, gas GasBudget) (ret []byte, result GasBudget, err error) {
+	// Sonic: route through the call interceptor when one is installed.
+	if evm.CallInterceptor != nil {
+		return evm.CallInterceptor.StaticCall(evm, caller, addr, input, gas)
+	}
 	// Invoke tracer hooks that signal entering/exiting a call frame
 	if evm.Config.Tracer != nil {
 		evm.captureBegin(evm.depth, STATICCALL, caller, addr, input, gas, nil)
@@ -520,8 +560,18 @@ func (evm *EVM) chargeAccountCreation(scope *ScopeContext, contractAddr common.A
 	return true, false, nil
 }
 
-// create creates a new contract using code as deployment code.
-func (evm *EVM) create(caller common.Address, code []byte, gas GasBudget, value *uint256.Int, address common.Address, typ OpCode) (ret []byte, createAddress common.Address, result GasBudget, err error) {
+// create creates a new contract using code as deployment code. The salt is only
+// meaningful for CREATE2 and is nil otherwise.
+func (evm *EVM) create(caller common.Address, code []byte, gas GasBudget, value *uint256.Int, address common.Address, typ OpCode, salt *uint256.Int) (ret []byte, createAddress common.Address, result GasBudget, err error) {
+	// Sonic: route through the call interceptor when one is installed. Every
+	// creation - the Create/Create2 entry points and the CREATE/CREATE2 opcodes
+	// alike - passes through here.
+	if evm.CallInterceptor != nil {
+		if typ == CREATE2 {
+			return evm.CallInterceptor.Create2(evm, caller, code, gas, value, salt)
+		}
+		return evm.CallInterceptor.Create(evm, caller, code, gas, value)
+	}
 	// Since Amsterdam, the precheck has been folded into the parent frame
 	// due to account-creation determination, so skip the duplicate check here.
 	if !evm.chainRules.IsAmsterdam {
@@ -649,13 +699,17 @@ func (evm *EVM) initNewContract(contract *Contract, address common.Address) ([]b
 		if len(ret) > 0 && (consumed < wanted) {
 			return ret, ErrCodeStoreOutOfGas
 		}
-		if err := CheckMaxCodeSize(&evm.chainRules, uint64(len(ret))); err != nil {
+		// Sonic: goes through the EVM so that Config.MaxCodeSize can override the
+		// protocol limit (core/vm/sonic_code_size.go).
+		if err := evm.CheckCodeSize(uint64(len(ret))); err != nil {
 			return ret, err
 		}
 	} else if evm.chainRules.IsAmsterdam {
 		// Check max code size BEFORE charging gas so over-max code
 		// does not consume state gas (which would inflate tx_state).
-		if err := CheckMaxCodeSize(&evm.chainRules, uint64(len(ret))); err != nil {
+		// Sonic: goes through the EVM so that Config.MaxCodeSize can override the
+		// protocol limit (core/vm/sonic_code_size.go).
+		if err := evm.CheckCodeSize(uint64(len(ret))); err != nil {
 			return ret, err
 		}
 		// Charge regular gas (hash cost) before state gas.
@@ -673,7 +727,9 @@ func (evm *EVM) initNewContract(contract *Contract, address common.Address) ([]b
 		if !contract.chargeRegular(createDataCost, evm.Config.Tracer, tracing.GasChangeCallCodeStorage) {
 			return ret, ErrCodeStoreOutOfGas
 		}
-		if err := CheckMaxCodeSize(&evm.chainRules, uint64(len(ret))); err != nil {
+		// Sonic: goes through the EVM so that Config.MaxCodeSize can override the
+		// protocol limit (core/vm/sonic_code_size.go).
+		if err := evm.CheckCodeSize(uint64(len(ret))); err != nil {
 			return ret, err
 		}
 	}
@@ -686,7 +742,7 @@ func (evm *EVM) initNewContract(contract *Contract, address common.Address) ([]b
 // Create creates a new contract using code as deployment code.
 func (evm *EVM) Create(caller common.Address, code []byte, gas GasBudget, value *uint256.Int) (ret []byte, contractAddr common.Address, result GasBudget, err error) {
 	contractAddr = crypto.CreateAddress(caller, evm.StateDB.GetNonce(caller))
-	return evm.create(caller, code, gas, value, contractAddr, CREATE)
+	return evm.create(caller, code, gas, value, contractAddr, CREATE, nil)
 }
 
 // Create2 creates a new contract using code as deployment code.
@@ -696,7 +752,7 @@ func (evm *EVM) Create(caller common.Address, code []byte, gas GasBudget, value 
 func (evm *EVM) Create2(caller common.Address, code []byte, gas GasBudget, endowment *uint256.Int, salt *uint256.Int) (ret []byte, contractAddr common.Address, result GasBudget, err error) {
 	inithash := crypto.Keccak256Hash(code)
 	contractAddr = crypto.CreateAddress2(caller, salt.Bytes32(), inithash[:])
-	return evm.create(caller, code, gas, endowment, contractAddr, CREATE2)
+	return evm.create(caller, code, gas, endowment, contractAddr, CREATE2, salt)
 }
 
 // resolveCode returns the code associated with the provided account. After

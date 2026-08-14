@@ -441,13 +441,17 @@ func (st *stateTransition) buyGas() error {
 		return fmt.Errorf("%w: address %v required balance exceeds 256 bits", ErrInsufficientFunds, st.msg.From.Hex())
 	}
 	balanceCheck := new(uint256.Int).Set(mgval)
-	if st.msg.GasFeeCap != nil {
+	// Sonic: upstream always applies the fee cap; Sonic can skip it.
+	if !st.evm.Config.IgnoreGasFeeCap && st.msg.GasFeeCap != nil {
 		balanceCheck.SetUint64(st.msg.GasLimit)
 		if _, overflow := balanceCheck.MulOverflow(balanceCheck, st.msg.GasFeeCap); overflow {
 			return fmt.Errorf("%w: address %v required balance exceeds 256 bits", ErrInsufficientFunds, st.msg.From.Hex())
 		}
 	}
-	if st.msg.Value != nil {
+	// Sonic: insufficient balance for the **topmost** call isn't a consensus error
+	// in Opera, unlike Ethereum. Such a transaction reverts and consumes the
+	// sender's gas, so the value is left out of the balance check.
+	if !st.evm.Config.InsufficientBalanceIsNotAnError && st.msg.Value != nil {
 		if _, overflow := balanceCheck.AddOverflow(balanceCheck, st.msg.Value); overflow {
 			return fmt.Errorf("%w: address %v required balance exceeds 256 bits", ErrInsufficientFunds, st.msg.From.Hex())
 		}
@@ -505,7 +509,7 @@ func (st *stateTransition) initRuntimeGasBudget(rules params.Rules, intrinsicGas
 	executionGas := st.msg.GasLimit - intrinsicGas
 	gasLeft := executionGas
 	if rules.IsAmsterdam {
-		gasLeft = min(params.MaxTxGas-intrinsicGas, executionGas)
+		gasLeft = min(st.maxTxGas()-intrinsicGas, executionGas)
 	}
 	st.gasRemaining = vm.NewGasBudget(gasLeft, executionGas-gasLeft)
 
@@ -562,8 +566,8 @@ func (st *stateTransition) preCheck(rules params.Rules) error {
 	}
 	if !msg.SkipTransactionChecks {
 		// Verify tx gas limit does not exceed EIP-7825 cap.
-		if !rules.IsAmsterdam && rules.IsOsaka && msg.GasLimit > params.MaxTxGas {
-			return fmt.Errorf("%w (cap: %d, tx: %d)", ErrGasLimitTooHigh, params.MaxTxGas, msg.GasLimit)
+		if maxTxGas := st.maxTxGas(); !rules.IsAmsterdam && rules.IsOsaka && msg.GasLimit > maxTxGas {
+			return fmt.Errorf("%w (cap: %d, tx: %d)", ErrGasLimitTooHigh, maxTxGas, msg.GasLimit)
 		}
 		// Make sure the sender is an EOA
 		code := st.state.GetCode(msg.From)
@@ -634,8 +638,10 @@ func (st *stateTransition) preCheck(rules params.Rules) error {
 		}
 	}
 	// Check whether the init code size has been exceeded (EIP-3860).
+	// Sonic: goes through the EVM so that Config.MaxInitCodeSize can override the
+	// protocol limit (core/vm/sonic_code_size.go).
 	if msg.To == nil {
-		if err := vm.CheckMaxInitCodeSize(&rules, uint64(len(msg.Data))); err != nil {
+		if err := st.evm.CheckInitCodeSize(uint64(len(msg.Data))); err != nil {
 			return err
 		}
 	}
@@ -718,8 +724,11 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	if value == nil {
 		value = new(uint256.Int)
 	}
-	if !value.IsZero() && !st.evm.Context.CanTransfer(st.state, msg.From, value) {
-		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From.Hex())
+	// Sonic: an unaffordable transfer reverts instead of failing the transaction.
+	if !st.evm.Config.InsufficientBalanceIsNotAnError {
+		if !value.IsZero() && !st.evm.Context.CanTransfer(st.state, msg.From, value) {
+			return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From.Hex())
+		}
 	}
 
 	// Execute the preparatory steps for state transition which includes:
@@ -761,7 +770,10 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 		// Skip fee payment when NoBaseFee is set and the fee fields
 		// are 0. This avoids a negative effectiveTip being applied to
 		// the coinbase when simulating calls.
-	} else {
+		// Sonic: the SkipTipPaymentToCoinbase condition on this branch is a Sonic
+		// addition - Sonic distributes the tip itself rather than crediting the
+		// coinbase here.
+	} else if !st.evm.Config.SkipTipPaymentToCoinbase {
 		fee := new(uint256.Int).SetUint64(gasUsed)
 		fee.Mul(fee, effectiveTip)
 		st.state.AddBalance(st.evm.Context.Coinbase, fee, tracing.BalanceIncreaseRewardTransactionFee)
@@ -978,6 +990,19 @@ func (st *stateTransition) settleGas(rules params.Rules, floorDataGas uint64) (g
 	if gasUsedBeforeRefund < txStateGas {
 		return 0, 0, fmt.Errorf("negative topmost frame regular gas usage, total: %d, state: %d", gasUsedBeforeRefund, txStateGas)
 	}
+
+	// The peak figure is the gas allowance the execution actually required, and is
+	// snapshotted before the Sonic excess-gas charge below inflates the usage.
+	peakUsed = gasUsedBeforeRefund
+
+	// Sonic: pre-Prague excess-gas charge. The Prague path charges below instead,
+	// after the EIP-7623 floor-gas adjustment; the two sites are mutually exclusive.
+	// Charging here lets the EIP-3529 refund cap see the inflated usage, as it did
+	// before the charge moved into settleGas.
+	if !rules.IsPrague {
+		gasLeft = st.chargeExcessGas(st.msg.From, gasLeft)
+		gasUsedBeforeRefund = st.msg.GasLimit - gasLeft
+	}
 	txRegularGas := max(gasUsedBeforeRefund-txStateGas, floorDataGas)
 
 	// EIP-3529: tx_gas_refund = min(tx_gas_used_before_refund/5, refund_counter).
@@ -989,7 +1014,6 @@ func (st *stateTransition) settleGas(rules params.Rules, floorDataGas uint64) (g
 	gasUsed = gasUsedBeforeRefund - refund
 
 	// EIP-7623: tx_gas_used = max(tx_gas_used_after_refund, calldata_floor).
-	peakUsed = gasUsedBeforeRefund
 	if rules.IsPrague && gasUsed < floorDataGas {
 		diff := floorDataGas - gasUsed
 		if st.evm.Config.Tracer.HasGasHook() {
@@ -998,6 +1022,13 @@ func (st *stateTransition) settleGas(rules params.Rules, floorDataGas uint64) (g
 		gasLeft -= diff
 		gasUsed = floorDataGas
 		peakUsed = max(peakUsed, floorDataGas)
+	}
+
+	// Sonic: Prague excess-gas charge, after the floor-gas adjustment.
+	if rules.IsPrague {
+		kept := st.chargeExcessGas(st.msg.From, gasLeft)
+		gasUsed += gasLeft - kept
+		gasLeft = kept
 	}
 
 	// Settle down the final gas consumption in the block-level pool
@@ -1021,6 +1052,25 @@ func (st *stateTransition) settleGas(rules params.Rules, floorDataGas uint64) (g
 		}
 	}
 	return gasUsed, peakUsed, nil
+}
+
+// Sonic: chargeExcessGas withholds 10% of the leftover gas for all transactions
+// that are not internal transactions. This discourages gas-overspending, which
+// would otherwise fill up blocks. It returns the leftover the sender keeps.
+func (st *stateTransition) chargeExcessGas(from common.Address, gasLeft uint64) uint64 {
+	if !st.evm.Config.ChargeExcessGas || from == (common.Address{}) {
+		return gasLeft
+	}
+	return gasLeft - gasLeft/10
+}
+
+// Sonic: maxTxGas returns the per-transaction gas cap, letting Config.MaxTxGas
+// override the protocol-defined params.MaxTxGas.
+func (st *stateTransition) maxTxGas() uint64 {
+	if st.evm.Config.MaxTxGas != nil {
+		return *st.evm.Config.MaxTxGas
+	}
+	return params.MaxTxGas
 }
 
 // validateAuthorization validates an EIP-7702 authorization against the state.
