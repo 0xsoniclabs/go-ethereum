@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/internal/telemetry"
@@ -33,6 +34,28 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// Sonic: an execution time limit for RPC method calls, which upstream does not
+// have. It is process-global, so the default below applies to every consumer of
+// this package.
+var (
+	executionTimeLimit = atomic.Pointer[time.Duration]{}
+)
+
+// SetExecutionTimeLimit sets execution limit for RPC method calls
+func SetExecutionTimeLimit(limit time.Duration) {
+	executionTimeLimit.Store(&limit)
+}
+
+// getExecutionTimeLimit returns the execution time limit for RPC method calls
+// as set by SetExecutionTimeLimit. If no limit is set, it returns the default
+// value of 5 seconds.
+func getExecutionTimeLimit() time.Duration {
+	if limit := executionTimeLimit.Load(); limit != nil {
+		return *limit
+	}
+	return 5 * time.Second // default value
+}
 
 // handler handles JSON-RPC messages. There is one handler per connection. Note that
 // handler is not safe for concurrent use. Message handling never blocks indefinitely
@@ -581,8 +604,14 @@ func (h *handler) handleCall(cp *callProc, msg *jsonrpcMessage) *jsonrpcMessage 
 	}
 	start := time.Now()
 
+	// Sonic: bound the method call by the configured execution time limit. The
+	// runMethod span below has to descend from this context, otherwise the limit
+	// never reaches the method.
+	ctx, cancel := context.WithTimeout(cp.ctx, getExecutionTimeLimit())
+	defer cancel()
+
 	// Start tracing span before running the method.
-	rctx, _, rSpanEnd := telemetry.StartSpanWithTracer(cp.ctx, h.tracer(), "rpc.runMethod")
+	rctx, _, rSpanEnd := telemetry.StartSpanWithTracer(ctx, h.tracer(), "rpc.runMethod")
 	answer := h.runMethod(rctx, msg, callb, args)
 	var rErr error
 	if answer.Error != nil {
