@@ -1,6 +1,10 @@
 pipeline {
     agent { label 'pr' }
 
+    environment {
+        HOME = "${WORKSPACE}"
+    }
+
     options {
         timestamps()
         timeout(time: 4, unit: 'HOURS')
