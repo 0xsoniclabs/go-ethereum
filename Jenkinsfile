@@ -34,7 +34,8 @@ pipeline {
 
         stage('Run tests') {
             steps {
-                sh 'go test ./... --timeout 1h'
+                sh 'echo "HOME=$HOME WORKSPACE=$WORKSPACE"'
+                sh 'HOME="$WORKSPACE" go test ./... --timeout 1h'
             }
         }
 
