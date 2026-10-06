@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -147,6 +148,82 @@ func TestStateTransition_GasTipPaymentToCoinbaseCanBeSkipped(t *testing.T) {
 	}
 	if got, want := balance.Uint64(), uint64(1_000_000); got != want {
 		t.Errorf("expected coinbase balance to be %d, got %d", want, got)
+	}
+}
+
+func TestStateTransition_UnfundedCreationSpendsNonceWhenEnabled(t *testing.T) {
+	const balance = 1_000_000
+
+	tests := map[string]struct {
+		value     int64
+		enabled   bool
+		wantErr   error
+		wantNonce uint64
+	}{
+		"funded, disabled": {
+			value:     balance - 1,
+			enabled:   false,
+			wantErr:   nil,
+			wantNonce: 1,
+		},
+		"funded, enabled": {
+			value:     balance - 1,
+			enabled:   true,
+			wantErr:   nil,
+			wantNonce: 1,
+		},
+		"unfunded, disabled": {
+			value:     balance + 1,
+			enabled:   false,
+			wantErr:   vm.ErrInsufficientBalance,
+			wantNonce: 0,
+		},
+		"unfunded, enabled": {
+			value:     balance + 1,
+			enabled:   true,
+			wantErr:   vm.ErrInsufficientBalance,
+			wantNonce: 1,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			sender := common.Address{12}
+			stateDB, err := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
+			if err != nil {
+				t.Fatalf("failed to create state: %v", err)
+			}
+			stateDB.SetBalance(sender, uint256.NewInt(balance), tracing.BalanceChangeUnspecified)
+
+			evm := vm.NewEVM(
+				vm.BlockContext{CanTransfer: CanTransfer, Transfer: Transfer},
+				stateDB,
+				&params.ChainConfig{},
+				vm.Config{
+					InsufficientBalanceIsNotAnError: true,
+					UnfundedCreationSpendsNonce:     test.enabled,
+				},
+			)
+			msg := &Message{
+				From:      sender,
+				Value:     big.NewInt(test.value),
+				GasLimit:  100_000,
+				GasPrice:  big.NewInt(0),
+				GasFeeCap: big.NewInt(0),
+				GasTipCap: big.NewInt(0),
+			}
+
+			result, err := ApplyMessage(evm, msg, NewGasPool(100_000))
+			if err != nil {
+				t.Fatalf("unexpected consensus error: %v", err)
+			}
+			if !errors.Is(result.Err, test.wantErr) {
+				t.Errorf("unexpected execution error: got %v, want %v", result.Err, test.wantErr)
+			}
+			if got := stateDB.GetNonce(sender); got != test.wantNonce {
+				t.Errorf("unexpected sender nonce: got %d, want %d", got, test.wantNonce)
+			}
+		})
 	}
 }
 

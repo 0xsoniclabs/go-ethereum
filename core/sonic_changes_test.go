@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
@@ -85,6 +86,72 @@ func TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet(t *testing.T) {
 			_, err = stateTransition.execute()
 			if !errors.Is(err, test.expectedError) {
 				t.Errorf("unexpected error: got %v, want %v", err, test.expectedError)
+			}
+		})
+	}
+}
+
+func TestUnfundedCreationSpendsNonce_SpendsTheNonceOnlyWhenEnabled(t *testing.T) {
+	const balance = 1_000_000
+
+	tests := map[string]struct {
+		value       int64
+		enabled     bool
+		expectedErr error
+		wantNonce   uint64
+	}{
+		"affordable":           {value: balance - 1, wantNonce: 1},
+		"unaffordable":         {value: balance + 1, expectedErr: vm.ErrInsufficientBalance, wantNonce: 0},
+		"unaffordable enabled": {value: balance + 1, enabled: true, expectedErr: vm.ErrInsufficientBalance, wantNonce: 1},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			sender := common.Address{0x42}
+
+			stateDB, err := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
+			if err != nil {
+				t.Fatalf("failed to create stateDB: %v", err)
+			}
+			stateDB.CreateAccount(sender)
+			stateDB.SetBalance(sender, uint256.NewInt(balance), tracing.BalanceChangeUnspecified)
+
+			evm := vm.NewEVM(
+				vm.BlockContext{
+					CanTransfer: CanTransfer,
+					Transfer:    Transfer,
+					BlockNumber: big.NewInt(10),
+					BaseFee:     big.NewInt(0),
+					Random:      &common.Hash{0x42},
+				},
+				stateDB,
+				&params.ChainConfig{LondonBlock: big.NewInt(0), ShanghaiTime: new(uint64)},
+				vm.Config{
+					IgnoreGasFeeCap:                 true,
+					InsufficientBalanceIsNotAnError: true,
+					UnfundedCreationSpendsNonce:     test.enabled,
+				},
+			)
+
+			message := &Message{
+				From:      sender,
+				To:        nil, // contract creation
+				Value:     big.NewInt(test.value),
+				GasLimit:  1_000_000,
+				GasPrice:  big.NewInt(0),
+				GasFeeCap: big.NewInt(0),
+				GasTipCap: big.NewInt(0),
+			}
+
+			result, err := newStateTransition(evm, message, NewGasPool(1_000_000)).execute()
+			if err != nil {
+				t.Fatalf("transaction must not be a consensus error: %v", err)
+			}
+			if !errors.Is(result.Err, test.expectedErr) {
+				t.Errorf("unexpected execution error: got %v, want %v", result.Err, test.expectedErr)
+			}
+			if got := stateDB.GetNonce(sender); got != test.wantNonce {
+				t.Errorf("nonce after the creation: got %d, want %d", got, test.wantNonce)
 			}
 		})
 	}
