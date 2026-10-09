@@ -195,11 +195,18 @@ func TestStateTransition_UnfundedCreationSpendsNonceWhenEnabled(t *testing.T) {
 			}
 			stateDB.SetBalance(sender, uint256.NewInt(balance), tracing.BalanceChangeUnspecified)
 
+			tracer, err := tracing.WrapWithJournal(&tracing.Hooks{
+				OnNonceChangeV2: func(common.Address, uint64, uint64, tracing.NonceChangeReason) {},
+			})
+			if err != nil {
+				t.Fatalf("failed to create tracer: %v", err)
+			}
 			evm := vm.NewEVM(
 				vm.BlockContext{CanTransfer: CanTransfer, Transfer: Transfer},
-				stateDB,
+				state.NewHookedState(stateDB, tracer),
 				&params.ChainConfig{},
 				vm.Config{
+					Tracer:                          tracer,
 					InsufficientBalanceIsNotAnError: true,
 					UnfundedCreationSpendsNonce:     test.enabled,
 				},
