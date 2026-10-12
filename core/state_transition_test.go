@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 )
@@ -189,28 +190,25 @@ func TestStateTransition_UnfundedCreationSpendsNonceWhenEnabled(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			sender := common.Address{12}
-			stateDB, err := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
-			if err != nil {
-				t.Fatalf("failed to create state: %v", err)
-			}
+			stateDB := newUnfundedCreationTestState(t)
 			stateDB.SetBalance(sender, uint256.NewInt(balance), tracing.BalanceChangeUnspecified)
 
-			tracer, err := tracing.WrapWithJournal(&tracing.Hooks{
-				OnNonceChangeV2: func(common.Address, uint64, uint64, tracing.NonceChangeReason) {},
-			})
-			if err != nil {
-				t.Fatalf("failed to create tracer: %v", err)
-			}
-			evm := vm.NewEVM(
-				vm.BlockContext{CanTransfer: CanTransfer, Transfer: Transfer},
-				state.NewHookedState(stateDB, tracer),
-				&params.ChainConfig{},
-				vm.Config{
-					Tracer:                          tracer,
-					InsufficientBalanceIsNotAnError: true,
-					UnfundedCreationSpendsNonce:     test.enabled,
-				},
+			var (
+				createAddress common.Address
+				reasons       []tracing.NonceChangeReason
 			)
+			evm := newUnfundedCreationTestEVM(t, stateDB, test.enabled, &tracing.Hooks{
+				OnEnter: func(depth int, _ byte, _ common.Address, to common.Address, _ []byte, _ uint64, _ *big.Int) {
+					if depth == 0 {
+						createAddress = to
+					}
+				},
+				OnNonceChangeV2: func(addr common.Address, _, _ uint64, reason tracing.NonceChangeReason) {
+					if addr == sender {
+						reasons = append(reasons, reason)
+					}
+				},
+			})
 			msg := &Message{
 				From:      sender,
 				Value:     big.NewInt(test.value),
@@ -230,7 +228,55 @@ func TestStateTransition_UnfundedCreationSpendsNonceWhenEnabled(t *testing.T) {
 			if got := stateDB.GetNonce(sender); got != test.wantNonce {
 				t.Errorf("unexpected sender nonce: got %d, want %d", got, test.wantNonce)
 			}
+			if want := crypto.CreateAddress(sender, 0); createAddress != want {
+				t.Errorf("unexpected create address: got %v, want %v", createAddress, want)
+			}
+			if test.wantNonce == 0 {
+				if len(reasons) != 0 {
+					t.Errorf("unexpected nonce changes: %v", reasons)
+				}
+			} else if len(reasons) != 1 || reasons[0] != tracing.NonceChangeContractCreator {
+				t.Errorf("unexpected nonce changes: got %v, want [%v]", reasons, tracing.NonceChangeContractCreator)
+			}
 		})
+	}
+}
+
+func TestStateTransition_UnfundedNestedCreationDoesNotSpendNonce(t *testing.T) {
+	sender := common.Address{12}
+	factory := common.Address{13}
+	stateDB := newUnfundedCreationTestState(t)
+	stateDB.SetBalance(sender, uint256.NewInt(1_000_000), tracing.BalanceChangeUnspecified)
+	stateDB.SetNonce(factory, 1, tracing.NonceChangeUnspecified)
+	// CREATE with a value of 1 from a factory holding no balance.
+	stateDB.SetCode(factory, []byte{
+		byte(vm.PUSH1), 0, // size
+		byte(vm.PUSH1), 0, // offset
+		byte(vm.PUSH1), 1, // value
+		byte(vm.CREATE),
+		byte(vm.STOP),
+	}, tracing.CodeChangeUnspecified)
+
+	evm := newUnfundedCreationTestEVM(t, stateDB, true, &tracing.Hooks{})
+	msg := &Message{
+		From:      sender,
+		To:        &factory,
+		Value:     big.NewInt(0),
+		GasLimit:  100_000,
+		GasPrice:  big.NewInt(0),
+		GasFeeCap: big.NewInt(0),
+		GasTipCap: big.NewInt(0),
+	}
+
+	result, err := ApplyMessage(evm, msg, NewGasPool(100_000))
+	if err != nil {
+		t.Fatalf("unexpected consensus error: %v", err)
+	}
+	if result.Err != nil {
+		t.Fatalf("unexpected execution error: %v", result.Err)
+	}
+	if got := stateDB.GetNonce(factory); got != 1 {
+		t.Errorf("unexpected factory nonce: got %d, want 1", got)
 	}
 }
 
@@ -359,4 +405,40 @@ func (*dummyStateDB) RevertToSnapshot(int) {
 
 func (*dummyStateDB) Witness() *stateless.Witness {
 	return nil
+}
+
+func newUnfundedCreationTestState(t *testing.T) *state.StateDB {
+	t.Helper()
+	stateDB, err := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
+	if err != nil {
+		t.Fatalf("failed to create state: %v", err)
+	}
+	return stateDB
+}
+
+// newUnfundedCreationTestEVM creates an EVM running the latest rules, with the
+// given hooks wrapped by the journal so that tracer invariants are enforced.
+func newUnfundedCreationTestEVM(t *testing.T, stateDB *state.StateDB, enabled bool, hooks *tracing.Hooks) *vm.EVM {
+	t.Helper()
+	tracer, err := tracing.WrapWithJournal(hooks)
+	if err != nil {
+		t.Fatalf("failed to create tracer: %v", err)
+	}
+	return vm.NewEVM(
+		vm.BlockContext{
+			CanTransfer: CanTransfer,
+			Transfer:    Transfer,
+			BlockNumber: big.NewInt(0),
+			BaseFee:     big.NewInt(0),
+			BlobBaseFee: big.NewInt(0),
+			Random:      &common.Hash{},
+		},
+		state.NewHookedState(stateDB, tracer),
+		params.MergedTestChainConfig,
+		vm.Config{
+			Tracer:                          tracer,
+			InsufficientBalanceIsNotAnError: true,
+			UnfundedCreationSpendsNonce:     enabled,
+		},
+	)
 }

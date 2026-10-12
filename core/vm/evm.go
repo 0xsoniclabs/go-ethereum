@@ -528,6 +528,11 @@ func (evm *EVM) create(caller common.Address, code []byte, gas uint64, value *ui
 		return nil, common.Address{}, gas, ErrDepth
 	}
 	if !evm.Context.CanTransfer(evm.StateDB, caller, value) {
+		// A top-level creation that cannot fund its value would otherwise be
+		// charged while leaving its transaction replayable.
+		if evm.depth == 0 && evm.Config.UnfundedCreationSpendsNonce {
+			evm.StateDB.SetNonce(caller, evm.StateDB.GetNonce(caller)+1, tracing.NonceChangeContractCreator)
+		}
 		return nil, common.Address{}, gas, ErrInsufficientBalance
 	}
 	nonce := evm.StateDB.GetNonce(caller)

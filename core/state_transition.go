@@ -18,7 +18,6 @@ package core
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -525,12 +524,6 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 	)
 	if contractCreation {
 		ret, _, st.gasRemaining, vmerr = st.evm.Create(msg.From, msg.Data, st.gasRemaining, value)
-		// Create checks CanTransfer before spending the nonce, so a top-level creation
-		// that cannot fund its value executes, is charged, and leaves the nonce
-		// replayable. Where the network opts in, spend it here as the call branch does.
-		if st.evm.Config.UnfundedCreationSpendsNonce && errors.Is(vmerr, vm.ErrInsufficientBalance) {
-			st.state.SetNonce(msg.From, st.state.GetNonce(msg.From)+1, tracing.NonceChangeEoACall)
-		}
 	} else {
 		// Increment the nonce for the next transaction.
 		st.state.SetNonce(msg.From, st.state.GetNonce(msg.From)+1, tracing.NonceChangeEoACall)
