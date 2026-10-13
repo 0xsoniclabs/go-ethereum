@@ -124,7 +124,8 @@ func testCallTracer(tracerName string, dirPath string, t *testing.T) {
 			}
 			logState := vm.StateDB(st.StateDB)
 			if tracer.Hooks != nil {
-				logState = state.NewHookedState(st.StateDB, tracer.Hooks)
+				// Sonic: StateTestState.StateDB is an interface, so assert the geth type.
+				logState = state.NewHookedState(st.StateDB.(*state.StateDB), tracer.Hooks)
 			}
 			msg, err := core.TransactionToMessage(tx, signer, context.BaseFee)
 			if err != nil {
@@ -356,7 +357,8 @@ func TestInternals(t *testing.T) {
 
 			logState := vm.StateDB(st.StateDB)
 			if hooks := tc.tracer.Hooks; hooks != nil {
-				logState = state.NewHookedState(st.StateDB, hooks)
+				// Sonic: StateTestState.StateDB is an interface, so assert the geth type.
+				logState = state.NewHookedState(st.StateDB.(*state.StateDB), hooks)
 			}
 
 			tx, err := types.SignNewTx(key, signer, &types.LegacyTx{
