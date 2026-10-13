@@ -14,6 +14,12 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
+// Sonic: this is upstream's tests/init_test.go, renamed so that it compiles into
+// the non-test build and testMatcher becomes reachable from Sonic through
+// tests/sonic_matcher_wrapper.go. The content is upstream's and should be re-synced
+// from tests/init_test.go on every rebase; it carries no Sonic modifications, which
+// is why it is not named sonic_*.go.
+
 package tests
 
 import (
