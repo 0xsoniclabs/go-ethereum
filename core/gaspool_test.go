@@ -31,7 +31,7 @@ func TestGasPoolAvailable(t *testing.T) {
 	if err := gp.ChargeGasLegacy(10_000_000, 30_000_000); err != nil {
 		t.Fatal(err)
 	}
-	if have, want := gp.Available(false), uint64(30_000_000); have != want {
+	if have, want := gp.Available(false, params.MaxTxGas), uint64(30_000_000); have != want {
 		t.Fatalf("legacy: have %d, want %d", have, want)
 	}
 	// After Amsterdam a transaction reserves min(limit, MaxTxGas) execution
@@ -42,7 +42,7 @@ func TestGasPoolAvailable(t *testing.T) {
 	if err := gp.ChargeGasAmsterdam(32_000_000, 5_000_000, 32_000_000); err != nil {
 		t.Fatal(err)
 	}
-	if have, want := gp.Available(true), uint64(55_000_000); have != want {
+	if have, want := gp.Available(true, params.MaxTxGas), uint64(55_000_000); have != want {
 		t.Fatalf("amsterdam, execution unbound: have %d, want %d", have, want)
 	}
 	// With less than a cap of execution gas left, both dimensions bind.
@@ -50,14 +50,14 @@ func TestGasPoolAvailable(t *testing.T) {
 	if err := gp.ChargeGasAmsterdam(50_000_000, 20_000_000, 50_000_000); err != nil {
 		t.Fatal(err)
 	}
-	if have, want := gp.Available(true), uint64(10_000_000); have != want {
+	if have, want := gp.Available(true, params.MaxTxGas), uint64(10_000_000); have != want {
 		t.Fatalf("amsterdam, execution bound: have %d, want %d", have, want)
 	}
 	gp = NewGasPool(60_000_000)
 	if err := gp.ChargeGasAmsterdam(50_000_000, 55_000_000, 55_000_000); err != nil {
 		t.Fatal(err)
 	}
-	if have, want := gp.Available(true), uint64(5_000_000); have != want {
+	if have, want := gp.Available(true, params.MaxTxGas), uint64(5_000_000); have != want {
 		t.Fatalf("amsterdam, state bound: have %d, want %d", have, want)
 	}
 	// Available agrees with the reservation check on either side of the cap.
@@ -67,7 +67,7 @@ func TestGasPoolAvailable(t *testing.T) {
 	}
 	for _, gas := range []uint64{params.MaxTxGas - 1, params.MaxTxGas, 30_000_000, 60_000_000, 60_000_001} {
 		fits := gp.CheckGasAmsterdam(min(gas, params.MaxTxGas), gas) == nil
-		if have := gas <= gp.Available(true); have != fits {
+		if have := gas <= gp.Available(true, params.MaxTxGas); have != fits {
 			t.Fatalf("gas %d: available says %v, check says %v", gas, have, fits)
 		}
 	}
