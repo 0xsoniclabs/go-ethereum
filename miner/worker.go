@@ -477,7 +477,7 @@ func (miner *Miner) commitTransactions(ctx context.Context, env *environment, pl
 			}
 		}
 		// If we don't have enough gas for any further transactions then we're done.
-		if env.gasPool.Available(isAmsterdam) < minTxGas {
+		if env.gasPool.Available(isAmsterdam, params.MaxTxGas) < minTxGas {
 			log.Trace("Not enough gas for further transactions", "have", env.gasPool, "want", minTxGas)
 			break
 		}
@@ -512,7 +512,7 @@ func (miner *Miner) commitTransactions(ctx context.Context, env *environment, pl
 			break
 		}
 		// If we don't have enough space for the next transaction, skip the account.
-		if env.gasPool.Available(isAmsterdam) < ltx.Gas {
+		if env.gasPool.Available(isAmsterdam, params.MaxTxGas) < ltx.Gas {
 			log.Trace("Not enough gas left for transaction", "hash", ltx.Hash, "have", env.gasPool, "needed", ltx.Gas)
 			txs.Pop()
 			continue

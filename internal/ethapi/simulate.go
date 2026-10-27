@@ -535,7 +535,7 @@ func (sim *simulator) sanitizeCall(call *TransactionArgs, state vm.StateDB, head
 	}
 	// Let the call run wild unless explicitly specified.
 	amsterdam := sim.chainConfig.IsAmsterdam(header.Number, header.Time)
-	remaining := gp.Available(amsterdam)
+	remaining := gp.Available(amsterdam, params.MaxTxGas)
 	if amsterdam && !sim.validate {
 		// The execution gas is not capped in non-strict mode (see processBlock),
 		// so the whole gas limit is reserved in the execution dimension too.
