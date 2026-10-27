@@ -792,7 +792,7 @@ func doCall(ctx context.Context, b Backend, args TransactionArgs, state *state.S
 
 func applyMessage(ctx context.Context, b Backend, args TransactionArgs, state *state.StateDB, header *types.Header, timeout time.Duration, gp *core.GasPool, blockContext *vm.BlockContext, vmConfig *vm.Config, precompiles vm.PrecompiledContracts) (*core.ExecutionResult, error) {
 	// Get a new instance of the EVM.
-	available := gp.Available(b.ChainConfig().IsAmsterdam(header.Number, header.Time))
+	available := gp.Available(b.ChainConfig().IsAmsterdam(header.Number, header.Time), params.MaxTxGas)
 	if err := args.CallDefaults(available, blockContext.BaseFee, b.ChainConfig().ChainID); err != nil {
 		return nil, err
 	}

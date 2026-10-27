@@ -19,8 +19,6 @@ package core
 import (
 	"fmt"
 	"math"
-
-	"github.com/ethereum/go-ethereum/params"
 )
 
 // GasPool tracks the amount of gas available for transaction execution
@@ -107,13 +105,13 @@ func (gp *GasPool) ChargeGasAmsterdam(txExecution, txState, receiptGasUsed uint6
 // After Amsterdam (EIP-8037) the execution reservation is capped at MaxTxGas
 // while the state reservation is the full limit, so the execution dimension
 // stops binding once it holds a full cap.
-func (gp *GasPool) Available(amsterdam bool) uint64 {
+func (gp *GasPool) Available(amsterdam bool, maxTxGas uint64) uint64 {
 	if !amsterdam {
 		return gp.remaining
 	}
 	exec := gp.initial - gp.cumulativeExecution
 	state := gp.initial - gp.cumulativeState
-	if exec >= params.MaxTxGas {
+	if exec >= maxTxGas {
 		return state
 	}
 	return min(exec, state)
