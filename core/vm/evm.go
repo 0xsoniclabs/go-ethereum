@@ -32,8 +32,10 @@ import (
 )
 
 type (
-	// CanTransferFunc is the signature of a transfer guard function
-	CanTransferFunc func(StateDB, common.Address, *uint256.Int) bool
+	// CanTransferFunc is the signature of a transfer guard function; it is
+	// given the sender, the recipient and the amount (Sonic: the recipient
+	// lets the guard refuse transfers to an account)
+	CanTransferFunc func(StateDB, common.Address, common.Address, *uint256.Int) bool
 	// TransferFunc is the signature of a transfer function
 	TransferFunc func(StateDB, common.Address, common.Address, *uint256.Int, *params.Rules)
 	// GetHashFunc returns the n'th block hash in the blockchain
@@ -265,7 +267,7 @@ func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, g
 	syscall := isSystemCall(caller)
 
 	// Fail if we're trying to transfer more than the available balance.
-	if !syscall && !value.IsZero() && !evm.Context.CanTransfer(evm.StateDB, caller, value) {
+	if !syscall && !value.IsZero() && !evm.Context.CanTransfer(evm.StateDB, caller, addr, value) {
 		return nil, gas, ErrInsufficientBalance
 	}
 	snapshot := evm.StateDB.Snapshot()
@@ -368,7 +370,7 @@ func (evm *EVM) CallCode(caller common.Address, addr common.Address, input []byt
 	// Note although it's noop to transfer X ether to caller itself. But
 	// if caller doesn't have enough balance, it would be an error to allow
 	// over-charging itself. So the check here is necessary.
-	if !evm.Context.CanTransfer(evm.StateDB, caller, value) {
+	if !evm.Context.CanTransfer(evm.StateDB, caller, caller, value) {
 		return nil, gas, ErrInsufficientBalance
 	}
 	var snapshot = evm.StateDB.Snapshot()
@@ -527,7 +529,7 @@ func (evm *EVM) create(caller common.Address, code []byte, gas uint64, value *ui
 	if evm.depth > int(params.CallCreateDepth) {
 		return nil, common.Address{}, gas, ErrDepth
 	}
-	if !evm.Context.CanTransfer(evm.StateDB, caller, value) {
+	if !evm.Context.CanTransfer(evm.StateDB, caller, address, value) {
 		return nil, common.Address{}, gas, ErrInsufficientBalance
 	}
 	nonce := evm.StateDB.GetNonce(caller)

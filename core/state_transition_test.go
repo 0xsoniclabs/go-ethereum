@@ -168,7 +168,7 @@ func runTestTransactionAndGetBalance(
 	evm := vm.NewEVM(
 		vm.BlockContext{
 			Transfer:    func(vm.StateDB, common.Address, common.Address, *uint256.Int, *params.Rules) {},
-			CanTransfer: func(vm.StateDB, common.Address, *uint256.Int) bool { return true },
+			CanTransfer: func(vm.StateDB, common.Address, common.Address, *uint256.Int) bool { return true },
 			Coinbase:    testCoinbase,
 		},
 		&dummyStateDB{

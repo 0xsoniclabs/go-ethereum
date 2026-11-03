@@ -501,7 +501,11 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From.Hex())
 	}
 	if !st.evm.Config.InsufficientBalanceIsNotAnError {
-		if !value.IsZero() && !st.evm.Context.CanTransfer(st.state, msg.From, value) {
+		var to common.Address
+		if msg.To != nil {
+			to = *msg.To
+		}
+		if !value.IsZero() && !st.evm.Context.CanTransfer(st.state, msg.From, to, value) {
 			return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From.Hex())
 		}
 	}

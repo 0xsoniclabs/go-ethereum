@@ -54,7 +54,7 @@ func TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet(t *testing.T) {
 				ShanghaiTime: new(uint64),
 			}
 			blockContext := vm.BlockContext{
-				CanTransfer: func(vm.StateDB, common.Address, *uint256.Int) bool { return true },
+				CanTransfer: func(vm.StateDB, common.Address, common.Address, *uint256.Int) bool { return true },
 				Transfer:    func(vm.StateDB, common.Address, common.Address, *uint256.Int, *params.Rules) {},
 				BlockNumber: big.NewInt(10),
 				BaseFee:     big.NewInt(0),
