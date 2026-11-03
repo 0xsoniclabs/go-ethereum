@@ -38,6 +38,10 @@ type (
 	CanTransferFunc func(StateDB, common.Address, common.Address, *uint256.Int) bool
 	// TransferFunc is the signature of a transfer function
 	TransferFunc func(StateDB, common.Address, common.Address, *uint256.Int, *params.Rules)
+	// CallCheckFunc is the signature of a function checking a successful
+	// call to an address, whose state starts at the given snapshot; non-nil
+	// revert data makes the call revert with it (Sonic)
+	CallCheckFunc func(db StateDB, addr common.Address, snapshot int) []byte
 	// GetHashFunc returns the n'th block hash in the blockchain
 	// and is used by the BLOCKHASH EVM op code.
 	GetHashFunc func(uint64) common.Hash
@@ -64,6 +68,8 @@ type BlockContext struct {
 	CanTransfer CanTransferFunc
 	// Transfer transfers ether from one account to the other
 	Transfer TransferFunc
+	// CheckCall, if set, can revert a CALL that would otherwise succeed
+	CheckCall CallCheckFunc
 	// GetHash returns the hash corresponding to n
 	GetHash GetHashFunc
 
@@ -324,6 +330,11 @@ func (evm *EVM) Call(caller common.Address, addr common.Address, input []byte, g
 			contract.SetCallCode(evm.resolveCodeHash(addr), code)
 			ret, err = evm.Run(contract, input, false)
 			gas = contract.Gas
+		}
+	}
+	if err == nil && evm.Context.CheckCall != nil {
+		if revert := evm.Context.CheckCall(evm.StateDB, addr, snapshot); revert != nil {
+			ret, err = revert, ErrExecutionReverted
 		}
 	}
 	// When an error was returned by the EVM or when setting the creation code
