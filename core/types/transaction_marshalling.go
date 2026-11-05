@@ -396,9 +396,8 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		if dec.BlobVersionedHashes == nil {
 			return errors.New("missing required field 'blobVersionedHashes' in transaction")
 		}
-		if len(dec.BlobVersionedHashes) == 0 {
-			return errors.New("'blobVersionedHashes' must contain at least one hash")
-		}
+		// Sonic: blob transactions without blob hashes are the only ones Sonic
+		// accepts, so upstream's non-empty check (#35065) is dropped.
 		itx.BlobHashes = dec.BlobVersionedHashes
 
 		// signature R
