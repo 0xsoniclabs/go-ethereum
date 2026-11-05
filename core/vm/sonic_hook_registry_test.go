@@ -502,6 +502,7 @@ var sonicHookTestPrefixes = []string{
 	"TestEthTransferLogs",
 	"TestGetInterpreter_",
 	"TestGetRpcApis",
+	"TestSonicBlobTx_",
 	"TestSonicHookRegistry_",
 	"TestSonicPayload_",
 	"TestStatePrecompiles_",
@@ -562,6 +563,9 @@ var sonicHookTests = map[string][]string{
 		"TestSonicPayload_TypedReturnsFalseIfMistyped",
 		"TestSonicPayload_CanStoreMultipleKeys",
 		"TestSonicPayload_ReturnsFalseIfNotFound",
+	},
+	"Blob transactions without blob hashes (core/types)": {
+		"TestSonicBlobTx_DecodesFromJSONWithoutBlobHashes",
 	},
 	"RPC test APIs (rpc/rpc_test_utils)": {
 		"TestGetRpcApis",

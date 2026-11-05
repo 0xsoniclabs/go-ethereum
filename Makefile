@@ -72,7 +72,7 @@ help: Makefile
 # to sonicHookTestPrefixes in core/vm/sonic_hook_registry_test.go, which asserts
 # that every hook's pinning test is selected by this pattern.
 SONIC_HOOK_PACKAGES = ./core ./core/types ./core/vm ./rpc/rpc_test_utils
-SONIC_HOOK_TESTS = ^(TestCallInterceptor_|TestCustomCodeSize_|TestEthTransferLogs|TestGetInterpreter_|TestGetRpcApis|TestSonicHookRegistry_|TestSonicPayload_|TestStatePrecompiles_|TestStateTransition_)
+SONIC_HOOK_TESTS = ^(TestCallInterceptor_|TestCustomCodeSize_|TestEthTransferLogs|TestGetInterpreter_|TestGetRpcApis|TestSonicBlobTx_|TestSonicHookRegistry_|TestSonicPayload_|TestStatePrecompiles_|TestStateTransition_)
 
 #? test-sonic-hooks: Verify every Sonic modification is still wired in - run after any upstream rebase.
 test-sonic-hooks:
