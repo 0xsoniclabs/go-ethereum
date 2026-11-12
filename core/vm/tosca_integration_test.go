@@ -180,7 +180,7 @@ func TestCustomCodeSize_GasCreateEip3860AllowsCustomMaxInitCodeSize(t *testing.T
 				t.Fatalf("failed to create stateDB: %v", err)
 			}
 			config := Config{
-				MaxInitCodeSize: test.maxInitCodeSize,
+				MaxInitCodeSizeVMCreate: test.maxInitCodeSize,
 			}
 			time := uint64(0)
 			chainConfig := &params.ChainConfig{
