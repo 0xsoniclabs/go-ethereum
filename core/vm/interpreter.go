@@ -55,9 +55,10 @@ type Config struct {
 	// If nil, this is interpreted as "not set" and the default params value is used.
 	MaxTxGas *uint64
 
-	MaxCodeSize             *int // Maximum code size allowed for a contract. If nil, the default params value is used.
-	MaxInitCodeSize         *int // Maximum init code size allowed for a contract. If nil, the default params value is used.
-	MaxInitCodeSizeVMCreate *int // Maximum init code size allowed for a contract when using VM create. If nil, the default params value is used.
+	// Contract size limits. If nil, the default params values of the active fork are used.
+	MaxCodeSize             *int // Maximum size of deployed contract code.
+	MaxInitCodeSize         *int // Maximum init code size of contract creation transactions.
+	MaxInitCodeSizeVMCreate *int // Maximum init code size of CREATE and CREATE2 instructions.
 }
 
 // ScopeContext contains the things that are per-call, such as stack and memory,

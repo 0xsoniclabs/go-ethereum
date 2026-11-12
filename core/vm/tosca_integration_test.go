@@ -211,6 +211,58 @@ func TestCustomCodeSize_GasCreateEip3860AllowsCustomMaxInitCodeSize(t *testing.T
 	}
 }
 
+func TestCustomCodeSize_CreateOpcodesUseMaxInitCodeSizeVMCreate(t *testing.T) {
+	const size = 70_000
+	tests := map[string]struct {
+		maxInitCodeSize         *int
+		maxInitCodeSizeVMCreate *int
+		expectedError           error
+	}{
+		"vm create limit above size, tx limit below": {
+			maxInitCodeSize:         asPointer(size - 1),
+			maxInitCodeSizeVMCreate: asPointer(size),
+		},
+		"vm create limit below size, tx limit above": {
+			maxInitCodeSize:         asPointer(size),
+			maxInitCodeSizeVMCreate: asPointer(size - 1),
+			expectedError:           ErrMaxInitCodeSizeExceeded,
+		},
+		"vm create limit unset, tx limit above": {
+			maxInitCodeSize: asPointer(size),
+			expectedError:   ErrMaxInitCodeSizeExceeded,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			stateDB, err := state.New(types.EmptyRootHash, state.NewDatabaseForTesting())
+			if err != nil {
+				t.Fatalf("failed to create stateDB: %v", err)
+			}
+			config := Config{
+				MaxInitCodeSize:         test.maxInitCodeSize,
+				MaxInitCodeSizeVMCreate: test.maxInitCodeSizeVMCreate,
+			}
+			time := uint64(0)
+			chainConfig := &params.ChainConfig{
+				LondonBlock:  big.NewInt(0),
+				ShanghaiTime: &time,
+			}
+			evm := NewEVM(BlockContext{BlockNumber: big.NewInt(10), Random: &common.Hash{0x42}}, stateDB, chainConfig, config)
+
+			for _, gasFn := range []gasFunc{gasCreateEip3860, gasCreate2Eip3860} {
+				stack := newstack()
+				stack.Push(uint256.NewInt(size))
+				stack.Push(uint256.NewInt(size))
+				stack.Push(uint256.NewInt(size))
+				if _, err := gasFn(evm, nil, stack, NewMemory(), 0); !errors.Is(err, test.expectedError) {
+					t.Errorf("unexpected error: got %v, want %v", err, test.expectedError)
+				}
+			}
+		})
+	}
+}
+
 func asPointer[T any](v T) *T {
 	return &v
 }
