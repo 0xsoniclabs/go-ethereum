@@ -148,12 +148,12 @@ func TestCustomCodeSize_MaxCodeSizeIsEnforcedWhenSet(t *testing.T) {
 	}
 }
 
-func TestCustomCodeSize_GasCreateEip3860AllowsCustomMaxInitCodeSize(t *testing.T) {
+func TestCustomCodeSize_GasCreateEip3860AllowsCustomMaxInitCodeSizeVMCreate(t *testing.T) {
 	customLimit := 100_000
 	tests := map[string]struct {
-		maxInitCodeSize *int
-		initCodeSize    uint64
-		expectedError   error
+		maxInitCodeSizeVMCreate *int
+		initCodeSize            uint64
+		expectedError           error
 	}{
 		"default initCodeSize limit": {
 			initCodeSize: params.MaxInitCodeSize,
@@ -163,13 +163,13 @@ func TestCustomCodeSize_GasCreateEip3860AllowsCustomMaxInitCodeSize(t *testing.T
 			expectedError: ErrMaxInitCodeSizeExceeded,
 		},
 		"custom initCodeSize limit": {
-			maxInitCodeSize: asPointer(customLimit),
-			initCodeSize:    uint64(customLimit),
+			maxInitCodeSizeVMCreate: asPointer(customLimit),
+			initCodeSize:            uint64(customLimit),
 		},
 		"custom initCodeSize above limit": {
-			maxInitCodeSize: asPointer(customLimit),
-			initCodeSize:    uint64(customLimit + 1),
-			expectedError:   ErrMaxInitCodeSizeExceeded,
+			maxInitCodeSizeVMCreate: asPointer(customLimit),
+			initCodeSize:            uint64(customLimit + 1),
+			expectedError:           ErrMaxInitCodeSizeExceeded,
 		},
 	}
 
@@ -180,7 +180,7 @@ func TestCustomCodeSize_GasCreateEip3860AllowsCustomMaxInitCodeSize(t *testing.T
 				t.Fatalf("failed to create stateDB: %v", err)
 			}
 			config := Config{
-				MaxInitCodeSizeVMCreate: test.maxInitCodeSize,
+				MaxInitCodeSizeVMCreate: test.maxInitCodeSizeVMCreate,
 			}
 			time := uint64(0)
 			chainConfig := &params.ChainConfig{

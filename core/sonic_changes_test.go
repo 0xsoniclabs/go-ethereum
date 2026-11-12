@@ -20,9 +20,10 @@ func TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet(t *testing.T) {
 
 	customLimit := 100_000
 	tests := map[string]struct {
-		maxInitCodeSize *int
-		initCodeSize    uint64
-		expectedError   error
+		maxInitCodeSize         *int
+		maxInitCodeSizeVMCreate *int
+		initCodeSize            uint64
+		expectedError           error
 	}{
 		"default initCodeSize limit": {
 			initCodeSize: params.MaxInitCodeSize,
@@ -39,6 +40,11 @@ func TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet(t *testing.T) {
 			maxInitCodeSize: asPointer(customLimit),
 			initCodeSize:    uint64(customLimit + 1),
 			expectedError:   vm.ErrMaxInitCodeSizeExceeded,
+		},
+		"custom VM create limit does not apply to transactions": {
+			maxInitCodeSizeVMCreate: asPointer(customLimit),
+			initCodeSize:            params.MaxInitCodeSize + 1,
+			expectedError:           vm.ErrMaxInitCodeSizeExceeded,
 		},
 	}
 
@@ -62,6 +68,7 @@ func TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet(t *testing.T) {
 			}
 			config := vm.Config{
 				MaxInitCodeSize:                 test.maxInitCodeSize,
+				MaxInitCodeSizeVMCreate:         test.maxInitCodeSizeVMCreate,
 				IgnoreGasFeeCap:                 true,
 				InsufficientBalanceIsNotAnError: true,
 			}
