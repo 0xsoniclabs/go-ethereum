@@ -38,13 +38,22 @@ and justify it in the commit message. Do not silence a failure any other way.
 | `vm.Config.InsufficientBalanceIsNotAnError` | two sites in [core/state_transition.go](core/state_transition.go): the balance check in `stateTransition.buyGas`, and the value-transfer check (clause 6) in `stateTransition.execute` | `TestStateTransition_InsufficientBalanceCheckCanBeDisabled` (buyGas), `TestStateTransition_InsufficientFundsForTransferCheckCanBeDisabled` (clause 6) |
 | `vm.Config.SkipTipPaymentToCoinbase` | `stateTransition.execute` — [core/state_transition.go](core/state_transition.go) | `TestStateTransition_GasTipPaymentToCoinbaseCanBeSkipped` |
 | `vm.Config.MaxTxGas` | the Osaka-gated EIP-7825 cap in `stateTransition.preCheck`, replacing `params.MaxTxGas` — [core/state_transition.go](core/state_transition.go) | `TestStateTransition_MaxTxGasOverridesTheProtocolCap` |
-| `vm.Config.MaxCodeSize` | `vm.CheckMaxCodeSize` in `EVM.initNewContract` — [core/vm/evm.go](core/vm/evm.go) | `TestCustomCodeSize_MaxCodeSizeIsEnforcedWhenSet` |
-| `vm.Config.MaxInitCodeSize` | `vm.CheckMaxInitCodeSize` in `stateTransition.execute`, for creation transactions — [core/state_transition.go](core/state_transition.go) | `TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet` (state-transition entry check, unaffected by `MaxInitCodeSizeVMCreate`) |
-| `vm.Config.MaxInitCodeSizeVMCreate` | `vm.CheckMaxInitCodeSize` in `gasCreateEip3860` and `gasCreate2Eip3860`, for the `CREATE`/`CREATE2` instructions — [core/vm/gas_table.go](core/vm/gas_table.go) | `TestCustomCodeSize_GasCreateEip3860AllowsCustomMaxInitCodeSizeVMCreate` (EIP-3860 gas path), `TestCustomCodeSize_CreateOpcodesUseMaxInitCodeSizeVMCreate` (unaffected by `MaxInitCodeSize`) |
+| `vm.Config.MaxCodeSize` | `EVM.CheckCodeSize` ([core/vm/sonic_code_size.go](core/vm/sonic_code_size.go)), called from `EVM.initNewContract` — [core/vm/evm.go](core/vm/evm.go) | `TestCustomCodeSize_MaxCodeSizeIsEnforcedWhenSet` |
+| `vm.Config.MaxInitCodeSize` | `EVM.CheckInitCodeSize` ([core/vm/sonic_code_size.go](core/vm/sonic_code_size.go)), called for creation transactions from `stateTransition.execute` ([core/state_transition.go](core/state_transition.go)) | `TestCustomCodeSize_MaxInitCodeSizeIsEnforcedWhenSet` (state-transition entry check, unaffected by `MaxInitCodeSizeVMCreate`) |
+| `vm.Config.MaxInitCodeSizeVMCreate` | `EVM.CheckInitCodeSizeVMCreate` ([core/vm/sonic_code_size.go](core/vm/sonic_code_size.go)), called for the `CREATE`/`CREATE2` instructions from `gasCreateEip3860` and `gasCreate2Eip3860` ([core/vm/gas_table.go](core/vm/gas_table.go)) | `TestCustomCodeSize_GasCreateEip3860AllowsCustomMaxInitCodeSizeVMCreate` (EIP-3860 gas path), `TestCustomCodeSize_CreateOpcodesUseMaxInitCodeSizeVMCreate` (unaffected by `MaxInitCodeSize`) |
 | `vm.Config.StatePrecompiles` | `EVM.statePrecompile` plus, in `EVM.Call`, the `sp.Run(...)` dispatch branch and the added `!isStatePrecompile` condition in the EIP-158 dead-account guard — [core/vm/evm.go](core/vm/evm.go) | `TestStatePrecompiles_RegisteredContractIsDispatchedTo`, `TestStatePrecompiles_UnregisteredAddressKeepsVanillaBehavior`, `TestStatePrecompiles_LookupOnAnUnsetMap` |
 | `vm.Config.Interpreter`, `vm.Config.InterpreterForTracing` | `getInterpreter` ([core/vm/tosca_integration.go](core/vm/tosca_integration.go)), called from `EVM.Run` ([core/vm/interpreter.go](core/vm/interpreter.go)) | `TestGetInterpreter_ProducesInterpretersBasedOnConfiguration` |
 | `vm.EVM.CallInterceptor` | six early returns, one per call entry point: `Call`, `CallCode`, `DelegateCall`, `StaticCall`, `Create`, `Create2` — [core/vm/evm.go](core/vm/evm.go). Interface: `CallContextInterceptor` in [core/vm/tosca_integration.go](core/vm/tosca_integration.go) | `TestCallInterceptor_EveryEntryPointDispatchesToTheInterceptor` (all six, behaviorally), `TestCallInterceptor_WithoutAnInterceptorTheNormalPathRuns` (control), `TestSonicHookRegistry_EveryCallEntryPointStillDispatches` (structurally, by entry-point name) |
-| Nil gas pool tolerance | `ApplyMessage` substitutes `NewGasPool(msg.GasLimit)` for a nil pool, where upstream panics; needed for single-message RPC execution — [core/state_transition.go](core/state_transition.go) | `TestStateTransition_ANilGasPoolIsTolerated` |
+
+## Upstream behavior Sonic depends on
+
+The three entries below are **not** Sonic modifications — all three are upstream
+`v1.17.2` features. Sonic relies on them, so they are pinned by the same suite,
+but a failure here means upstream changed, not that a Sonic hook was lost.
+
+| Behavior | Where | Pinned by |
+|---|---|---|
+| Nil gas pool tolerance | `ApplyMessage` substitutes `NewGasPool(msg.GasLimit)` for a nil pool; Sonic uses it for single-message RPC execution — [core/state_transition.go](core/state_transition.go) | `TestStateTransition_ANilGasPoolIsTolerated` |
 | `vm.StateDB.EmitLogsForBurnAccounts` | interface method in [core/vm/interface.go](core/vm/interface.go); implementation in [core/state/statedb.go](core/state/statedb.go); forwarded by `hookedStateDB` in [core/state/statedb_hooked.go](core/state/statedb_hooked.go); called Amsterdam-gated at the end of `stateTransition.execute` ([core/state_transition.go](core/state_transition.go)) | `TestStateTransition_BurnAccountLogsAreEmittedUnderAmsterdamRules` (call site and its fork gate), `TestHookedStateDB_EmitLogsForBurnAccountsIsForwarded` (hooked forward) |
 | `BlockContext.Transfer` rules parameter, Amsterdam ETH transfer log | `TransferFunc` carries `*params.Rules` — [core/vm/evm.go](core/vm/evm.go) | `TestEthTransferLogs` |
 
@@ -65,22 +74,23 @@ therefore parses the source and asserts the number of references per hook:
 | `Config.MaxTxGas` | 2 (nil check, dereference) | `core` |
 | `Config.MaxCodeSize` | 1 | `core`, `core/vm` |
 | `Config.MaxInitCodeSize` | 1 | `core`, `core/vm` |
-| `Config.MaxInitCodeSizeVMCreate` | 2 | `core`, `core/vm` |
-| `CheckMaxCodeSize` calls | 1 | `core`, `core/vm` |
-| `CheckMaxInitCodeSize` calls | 3 | `core`, `core/vm` |
+| `Config.MaxInitCodeSizeVMCreate` | 1 | `core`, `core/vm` |
+| `EVM.CheckCodeSize` calls | 1 | `core`, `core/vm` |
+| `EVM.CheckInitCodeSize` calls | 1 | `core`, `core/vm` |
+| `EVM.CheckInitCodeSizeVMCreate` calls | 2 | `core`, `core/vm` |
 | `Config.StatePrecompiles` | 2 | `core/vm` |
 | `EVM.statePrecompile` calls | 1 | `core/vm` |
 | `Config.Interpreter` | 2 (nil check, call) | `core/vm` |
 | `Config.InterpreterForTracing` | 2 (nil check, call) | `core/vm` |
 | `getInterpreter` calls | 1 | `core/vm` |
-| `EmitLogsForBurnAccounts` calls | 1 | `core` |
-| `EmitLogsForBurnAccounts` calls | 1 | `core/state` |
+| `EmitLogsForBurnAccounts` calls (upstream) | 1 | `core` |
+| `EmitLogsForBurnAccounts` calls (upstream) | 1 | `core/state` |
 | `CallInterceptor` dispatches | 6, one per entry point, each behind exactly one nil guard | `core/vm` |
 
-`CheckMaxInitCodeSize` is also called from `core/txpool/validation.go` and
-`cmd/evm/internal/t8ntool/transaction.go`. Both pass `nil` for the Sonic
-override, so they are upstream call sites rather than hooks and are out of the
-census scope.
+Upstream's own `vm.CheckMaxCodeSize` / `vm.CheckMaxInitCodeSize` keep their
+upstream signatures and are also called from `core/txpool/validation.go` and
+`cmd/evm/internal/t8ntool/transaction.go`. Those are upstream call sites rather
+than hooks and are out of the census scope.
 
 Three further registry tests keep the registry itself honest:
 

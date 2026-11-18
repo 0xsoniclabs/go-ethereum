@@ -149,14 +149,6 @@ func (r *Record) ContainsKey(key string) bool {
 	return i < len(r.pairs) && r.pairs[i].k == key
 }
 
-func (r *Record) String() string {
-	str := ""
-	for _, p := range r.pairs {
-		str += p.k + " "
-	}
-	return str
-}
-
 // Set adds or updates the given entry in the record. It panics if the value can't be
 // encoded. If the record is signed, Set increments the sequence number and invalidates
 // the sequence number.

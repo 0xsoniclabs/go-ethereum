@@ -71,8 +71,6 @@ var upstreamConfigFields = map[string]reflect.Type{
 	"NoBaseFee":               reflect.TypeOf(false),
 	"EnablePreimageRecording": reflect.TypeOf(false),
 	"ExtraEips":               reflect.TypeOf([]int(nil)),
-	"StatelessSelfValidation": reflect.TypeOf(false),
-	"EnableWitnessStats":      reflect.TypeOf(false),
 }
 
 // sonicEvmFields are the fields Sonic adds to vm.EVM. CallInterceptor is a field
@@ -243,46 +241,55 @@ var sonicHookSites = []hookSite{
 		match: sonicFieldRef("MaxTxGas"),
 	},
 	{
-		hook:   "Config.MaxCodeSize",
-		wiring: "passed once, to CheckMaxCodeSize in EVM.initNewContract (core/vm/evm.go)",
-		dirs:   []string{coreDir, coreVmDir},
-		count:  1,
-		match:  sonicFieldRef("MaxCodeSize"),
+		hook: "Config.MaxCodeSize",
+		wiring: "consulted once, in EVM.CheckCodeSize (core/vm/sonic_code_size.go), which " +
+			"falls back to upstream's CheckMaxCodeSize when unset",
+		dirs:  []string{coreDir, coreVmDir},
+		count: 1,
+		match: sonicFieldRef("MaxCodeSize"),
 	},
 	{
 		hook: "Config.MaxInitCodeSize",
-		wiring: "passed to CheckMaxInitCodeSize once, from stateTransition.execute " +
-			"(core/state_transition.go)",
+		wiring: "consulted once, in EVM.CheckInitCodeSize (core/vm/sonic_code_size.go), which " +
+			"falls back to upstream's CheckMaxInitCodeSize when unset",
 		dirs:  []string{coreDir, coreVmDir},
 		count: 1,
 		match: sonicFieldRef("MaxInitCodeSize"),
 	},
 	{
 		hook: "Config.MaxInitCodeSizeVMCreate",
-		wiring: "passed to CheckMaxInitCodeSize twice, from gasCreateEip3860 and " +
-			"gasCreate2Eip3860 (core/vm/gas_table.go)",
+		wiring: "consulted once, in EVM.CheckInitCodeSizeVMCreate (core/vm/sonic_code_size.go), " +
+			"which falls back to upstream's CheckMaxInitCodeSize when unset",
 		dirs:  []string{coreDir, coreVmDir},
-		count: 2,
+		count: 1,
 		match: sonicFieldRef("MaxInitCodeSizeVMCreate"),
 	},
 	{
-		hook: "CheckMaxCodeSize",
+		hook: "EVM.CheckCodeSize",
 		wiring: "called once, on the deploy result in EVM.initNewContract (core/vm/evm.go). " +
 			"A second return path in the deployment flow that bypasses this call would let " +
 			"Sonic's custom code-size limit apply on some paths only",
 		dirs:  []string{coreDir, coreVmDir},
 		count: 1,
-		match: callTo("CheckMaxCodeSize"),
+		match: callTo("CheckCodeSize"),
 	},
 	{
-		hook: "CheckMaxInitCodeSize",
-		wiring: "called three times with a Sonic override: from stateTransition.execute " +
-			"(core/state_transition.go) with Config.MaxInitCodeSize, and from gasCreateEip3860 " +
-			"and gasCreate2Eip3860 (core/vm/gas_table.go) with Config.MaxInitCodeSizeVMCreate. " +
-			"The call sites in core/txpool and cmd/evm pass nil and are therefore not Sonic hooks",
+		hook: "EVM.CheckInitCodeSize",
+		wiring: "called once, from stateTransition.execute (core/state_transition.go), for " +
+			"creation transactions. The upstream call sites in core/txpool and cmd/evm go to " +
+			"CheckMaxInitCodeSize directly and are therefore not Sonic hooks",
 		dirs:  []string{coreDir, coreVmDir},
-		count: 3,
-		match: callTo("CheckMaxInitCodeSize"),
+		count: 1,
+		match: callTo("CheckInitCodeSize"),
+	},
+	{
+		hook: "EVM.CheckInitCodeSizeVMCreate",
+		wiring: "called twice, from gasCreateEip3860 and gasCreate2Eip3860 " +
+			"(core/vm/gas_table.go). A gas function bypassing this call would let Sonic's " +
+			"custom CREATE/CREATE2 initcode limit apply to one of the two instructions only",
+		dirs:  []string{coreDir, coreVmDir},
+		count: 2,
+		match: callTo("CheckInitCodeSizeVMCreate"),
 	},
 	{
 		hook:   "Config.StatePrecompiles",
@@ -322,8 +329,11 @@ var sonicHookSites = []hookSite{
 		count: 1,
 		match: callTo("getInterpreter"),
 	},
+	// EmitLogsForBurnAccounts is an upstream v1.17.2 feature, not a Sonic
+	// modification. It is censused here because Sonic depends on it; a failure
+	// means upstream changed, not that a Sonic hook was lost.
 	{
-		hook: "StateDB.EmitLogsForBurnAccounts (call site in core)",
+		hook: "StateDB.EmitLogsForBurnAccounts (upstream, call site in core)",
 		wiring: "called once from core, in the Amsterdam-gated tail of " +
 			"stateTransition.execute (core/state_transition.go)",
 		dirs:  []string{coreDir},
@@ -331,7 +341,7 @@ var sonicHookSites = []hookSite{
 		match: callTo("EmitLogsForBurnAccounts"),
 	},
 	{
-		hook: "StateDB.EmitLogsForBurnAccounts (forward in core/state)",
+		hook: "StateDB.EmitLogsForBurnAccounts (upstream, forward in core/state)",
 		wiring: "forwarded once from core/state, by hookedStateDB.EmitLogsForBurnAccounts " +
 			"(core/state/statedb_hooked.go), which delegates to the inner state",
 		dirs:  []string{coreStateDir},
@@ -500,14 +510,16 @@ var sonicHookTests = map[string][]string{
 		"TestCallInterceptor_WithoutAnInterceptorTheNormalPathRuns",
 		"TestSonicHookRegistry_EveryCallEntryPointStillDispatches",
 	},
-	"ApplyMessage nil gas pool tolerance": {
+	// The three entries below pin upstream v1.17.2 behavior that Sonic depends
+	// on rather than Sonic modifications of upstream.
+	"ApplyMessage nil gas pool tolerance (upstream)": {
 		"TestStateTransition_ANilGasPoolIsTolerated",
 	},
-	"StateDB.EmitLogsForBurnAccounts": {
+	"StateDB.EmitLogsForBurnAccounts (upstream)": {
 		"TestStateTransition_BurnAccountLogsAreEmittedUnderAmsterdamRules",
 		"TestHookedStateDB_EmitLogsForBurnAccountsIsForwarded",
 	},
-	"BlockContext.Transfer rules parameter and the Amsterdam ETH transfer log": {
+	"BlockContext.Transfer rules parameter and the Amsterdam ETH transfer log (upstream)": {
 		"TestEthTransferLogs",
 	},
 }

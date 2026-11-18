@@ -565,7 +565,7 @@ func (h *handler) handleCall(cp *callProc, msg *jsonrpcMessage) *jsonrpcMessage 
 	}
 	start := time.Now()
 
-	ctx, cancel := context.WithTimeout(cp.ctx, getExecutionTimeLimit())
+	ctx, cancel := context.WithTimeout(ctx, getExecutionTimeLimit())
 	defer cancel()
 
 	// Start tracing span before running the method.
